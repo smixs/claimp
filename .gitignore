@@ -1,0 +1,7 @@
+.build/
+build/
+.scratch/
+.worktrees/
+*.xcodeproj
+.swiftpm/
+.DS_Store

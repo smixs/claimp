@@ -1,0 +1,146 @@
+# NOTICE
+
+Claimp — native macOS player for DJ mix preparation
+Copyright 2026 Sergey Shima
+
+This product includes software developed by third parties. This file is the NOTICE
+file for the purposes of section 4(d) of the Apache License 2.0: the attribution
+notices for Apache-licensed components are reproduced below, and this file is
+distributed with the work.
+
+Full license texts are not duplicated here — they live in the upstream
+repositories linked in each section. SwiftPM unpacks every dependency into
+`.build/checkouts/` on the first build, so a local copy of each license is one
+`swift build` away.
+
+## Bòcan — Apache License 2.0 (attribution notice, §4(d))
+
+- Upstream: https://github.com/bocan/bocan-music
+- License: Apache License 2.0
+- Used for: playlist table (`TrackTable*.swift`: `NSTableView` with diffable data
+  source, click-to-sort headers), file drag-out (`TrackTableHelpers.swift`,
+  `.fileURL` on the pasteboard), media keys and Now Playing
+  (`RemoteCommands.swift`, `NowPlayingCentre.swift`).
+- Attribution: Bòcan ships no `NOTICE` file of its own; its `NOTICES.md` lists only
+  third-party dependencies of Bòcan itself (FFmpeg, TagLib, Chromaprint, …), none of
+  which are used here. The attribution notice for Bòcan is therefore this section.
+
+## Aural Player — MIT
+
+- Upstream: https://github.com/kartik-venugopal/aural-player
+- License: MIT
+- Used for: the waveform module (`Source/UI/Waveform`: chunked decoding, rendering,
+  click-to-seek) and folder drop onto the window (`DragDroppablePlayerView.swift`).
+
+```
+MIT License
+
+Copyright (c) 2025 Kartik Venugopal. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+```
+
+## SFBAudioEngine — MIT
+
+- Upstream: https://github.com/sbooth/SFBAudioEngine
+- License: MIT
+- Used for: playback and metadata reading (`AudioFile` +
+  `readPropertiesAndMetadata()`, with TagLib inside).
+- Note: SFBAudioEngine bundles further libraries; license texts for those are in its
+  `LICENSES/` directory upstream.
+
+```
+MIT License
+
+Copyright (c) 2006-2026 Stephen F. Booth
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+```
+
+## TagLib — LGPL 2.1 or MPL 1.1 (via SFBAudioEngine's CXXTagLib package)
+
+- Upstream: https://github.com/taglib/taglib (built as
+  https://github.com/sbooth/CXXTagLib)
+- License: GNU Lesser General Public License 2.1, or Mozilla Public License 1.1, at
+  your option
+- Used for: metadata and audio properties (release year from TYER/TDRC/DATE/©day,
+  cover art, bitrate).
+- License text: the CXXTagLib package ships the MPL 1.1 text as `LICENSE.txt`.
+
+```
+                          MOZILLA PUBLIC LICENSE
+                                Version 1.1
+
+                              ---------------
+```
+
+## GRDB.swift — MIT
+
+- Upstream: https://github.com/groue/GRDB.swift (7.11.1 in this project)
+- License: MIT
+- Used for: SQLite storage of the "played" flags and of playlist order
+  (`DatabaseQueue`, migrations).
+
+```
+Copyright (C) 2015-2025 Gwendal Roué
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+```
+
+## swift-property-based — MIT (test targets only)
+
+- Upstream: https://github.com/x-sheep/swift-property-based (2.0.0 in this project)
+- License: MIT
+- Used for: property-based tests (`propertyCheck`, `Gen` generators). It is a
+  dependency of the test targets only and is not linked into the shipped binary.
+
+## WaveformKit — MIT (cache key scheme only, no code copied)
+
+- Upstream: https://github.com/GRimAce11/WaveformKit
+- License: MIT
+- Used for: the shape of the waveform cache key (path + modification date + size +
+  format version) taken as an example. No code was copied and the package is not a
+  dependency.
+
+```
+MIT License
+
+Copyright (c) 2026 Chethan Nayak
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+```
+
+## Mixxx — GPL-2.0 (algorithm only, no code copied)
+
+- Upstream: https://github.com/mixxxdj/mixxx
+- License: GNU General Public License v2
+- Used for: **the algorithm only** — the three-band spectral colouring of the
+  waveform (three IIR filters at 600 Hz / 4 kHz, see `src/analyzer/analyzerwaveform.cpp`
+  and `src/waveform/renderers/allshader/waveformrendererrgb.cpp`, including the
+  per-column weighted colour mix and the normalisation by the largest component at
+  `waveformrendererrgb.cpp:159-182`).
+- No GPL code is present in this repository: the implementation is original, built on
+  vDSP and CoreGraphics, without FFT. Because no GPL-covered code was copied, no
+  obligations beyond naming the source arise here.
+
+```
+Mixxx 2.7-alpha, Digital DJ'ing software.
+Copyright (C) 2001-2026 Mixxx Development Team
+
+Mixxx is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version. The full text of the GNU
+General Public License, version 2 can be found below. The licenses
+of software libraries distributed together with Mixxx can be found
+below as well.
+```

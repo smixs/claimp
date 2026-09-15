@@ -1,0 +1,590 @@
+import AppKit
+import Core
+import Playback
+import Waveform
+
+/// Окно 500×760 (минимум 420×600) по SPEC §4.1. Всё @MainActor, своих очередей нет.
+/// Склейка T5: движок, Now Playing, волна через кэш, лампочки и плейлист в PlayedStore.
+@MainActor
+final class MainWindowController {
+    /// В UserDefaults лежит ПОЗИЦИЯ ручки 0…1, не усиление: старое линейное значение
+    /// прошлой версии читается как позиция, отдельной миграции не нужно.
+    private static let volumeKey = "Claimp.volume"
+    private static let defaultVolumePosition: Double = 0.8
+
+    let window: NSWindow
+    private let playlist = PlaylistController()
+    private let header = HeaderView()
+    private let wave = WaveformView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let search = NSSearchField()
+    private let scanner = LibraryScanner()
+    private let engine = PlayerEngine()
+    private let nowPlaying = NowPlayingBridge()
+    private let analyzer = WaveformAnalyzer()
+
+    /// nil, если боевой SQLite не открылся: лампочки и порядок тогда не сохраняются, причина висит
+    /// красным в статусной строке. Подмены памятью нет - правило «фолбэков и тихих пропусков нет».
+    private let store: PlayedStoring?
+    /// Причина, по которой не работают лампочки: живёт до выхода, показывается после свежих ошибок.
+    private let storeFailure: String?
+
+    /// Транспорт живёт внутри верхнего блока: обложка занимает всю его высоту.
+    private var transport: TransportView { header.transport }
+
+    /// Последняя ошибка (движка, волны или базы): висит в статусной строке, пока не заиграет
+    /// следующий трек или не начнётся новый анализ волны.
+    private var errorText: String?
+
+    private var positionsTask: Task<Void, Never>?
+    private var waveTask: Task<Void, Never>?
+    /// Трек, чьи данные сейчас на волне: повторный выбор той же строки анализ не перезапускает.
+    private var waveURL: URL?
+    private var lastElapsed: TimeInterval = 0
+
+    init() {
+        let opened = Self.openStore()
+        store = opened.store
+        storeFailure = opened.failure
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: Theme.size.windowWidth, height: Theme.size.windowHeight),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Claimp"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
+        window.minSize = NSSize(width: Theme.size.windowMinWidth, height: Theme.size.windowMinHeight)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.setFrameAutosaveName("ClaimpMain")
+
+        let root = DropReceiverView()
+        root.onDropURLs = { [weak self] urls in self?.loadURLs(urls) }
+        window.contentView = root
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        let logo = TitlebarLogo.makeView()
+        root.addSubview(logo)
+        // Центр логотипа - строго на оси светофоров; точное смещение берётся у самих кнопок
+        // ниже, константа здесь только чтобы констрейнт был полным до первого замера.
+        let logoCenter = logo.centerYAnchor.constraint(
+            equalTo: root.topAnchor, constant: Theme.size.titlebar / 2
+        )
+        NSLayoutConstraint.activate([
+            // Контент идёт под прозрачным титлбаром, логотип живёт в его полосе.
+            logo.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Theme.size.logoLeading),
+            logoCenter,
+
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: Theme.size.titlebar),
+            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        Self.align(logoCenter: logoCenter, toButtonsOf: window, in: root)
+
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.heightAnchor.constraint(equalToConstant: Theme.size.headerStrip).isActive = true
+        stack.addArrangedSubview(header)
+        header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        header.volume.position = Self.loadVolumePosition()
+
+        // Волна T6 со своей полосой времени (80 + 14): заменяет плейсхолдер и ряд времени T4.
+        wave.translatesAutoresizingMaskIntoConstraints = false
+        wave.heightAnchor.constraint(equalToConstant: WaveformView.waveHeight + WaveformView.timeStripHeight).isActive = true
+        wave.onSeek = { [weak self] fraction in self?.seek(fraction: fraction) }
+        stack.addArrangedSubview(wave)
+        wave.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        playlist.scrollView.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(playlist.scrollView)
+        playlist.scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        statusLabel.font = Theme.font.status
+        statusLabel.textColor = Theme.text.secondary
+        statusLabel.alignment = .center
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.heightAnchor.constraint(equalToConstant: Theme.size.statusStrip).isActive = true
+        stack.addArrangedSubview(statusLabel)
+        statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        let searchStrip = NSView()
+        Theme.fill(searchStrip, color: Theme.background.base)
+        searchStrip.translatesAutoresizingMaskIntoConstraints = false
+        searchStrip.heightAnchor.constraint(equalToConstant: Theme.size.searchStrip).isActive = true
+        let searchBacking = NSView()
+        Theme.fill(searchBacking, color: Theme.surface.inset, radius: Theme.radius.small)
+        searchBacking.translatesAutoresizingMaskIntoConstraints = false
+        search.translatesAutoresizingMaskIntoConstraints = false
+        search.isBezeled = false
+        search.drawsBackground = false
+        search.focusRingType = .none
+        search.placeholderAttributedString = NSAttributedString(
+            string: "Поиск",
+            attributes: [.foregroundColor: Theme.text.secondary, .font: Theme.font.row]
+        )
+        search.font = Theme.font.row
+        search.textColor = Theme.text.primary
+        search.sendsSearchStringImmediately = true
+        search.target = self
+        search.action = #selector(searchChanged)
+        searchBacking.addSubview(search)
+        searchStrip.addSubview(searchBacking)
+        NSLayoutConstraint.activate([
+            searchBacking.leadingAnchor.constraint(equalTo: searchStrip.leadingAnchor, constant: Theme.spacing.s),
+            searchBacking.trailingAnchor.constraint(equalTo: searchStrip.trailingAnchor, constant: -Theme.spacing.s),
+            searchBacking.topAnchor.constraint(equalTo: searchStrip.topAnchor, constant: Theme.spacing.xs),
+            searchBacking.bottomAnchor.constraint(equalTo: searchStrip.bottomAnchor, constant: -Theme.spacing.xs),
+            search.leadingAnchor.constraint(equalTo: searchBacking.leadingAnchor, constant: Theme.spacing.s),
+            search.trailingAnchor.constraint(equalTo: searchBacking.trailingAnchor, constant: -Theme.spacing.s),
+            search.centerYAnchor.constraint(equalTo: searchBacking.centerYAnchor),
+        ])
+        stack.addArrangedSubview(searchStrip)
+        searchStrip.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        engine.volume = VolumeCurve.gain(forPosition: Self.loadVolumePosition())
+        engine.onEndOfTrack = { [weak self] in self?.trackEnded() }
+        engine.onError = { [weak self] error in self?.report(error) }
+        wirePlaylist()
+        wireTransport()
+        wireRemote()
+        nowPlaying.register()
+        consumePositions()
+        header.show(track: nil)
+        refreshChrome()
+        restore()
+    }
+
+    func show() {
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Магазин лампочек
+
+    /// Боевая база открывается один раз; памятью её не подменяем: не открылась - лампочки и порядок
+    /// между запусками не работают, и об этом сказано явно (красная статусная строка и stderr).
+    private static func openStore() -> (store: PlayedStoring?, failure: String?) {
+        do {
+            return (try PlayedStore.makeDefault(), nil)
+        } catch {
+            let reason = "Лампочки и порядок не сохраняются: база не открылась (\(error.localizedDescription))"
+            FileHandle.standardError.write(Data("Claimp: \(reason)\n".utf8))
+            return (nil, reason)
+        }
+    }
+
+    // MARK: - Загрузка извне (дроп, Dock, ⌘O)
+
+    /// Дроп заменяет плейлист целиком. Без аудио - плейлист прежний, без падений.
+    func loadURLs(_ urls: [URL]) {
+        Task { [weak self] in
+            guard let self else { return }
+            let tracks = await self.scan(urls)
+            guard !tracks.isEmpty else { return }
+            self.applyScanned(tracks)
+        }
+    }
+
+    func showOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Открыть"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK else { return }
+            self?.loadURLs(panel.urls)
+        }
+    }
+
+    private func scan(_ urls: [URL]) async -> [Track] {
+        var tracks: [Track] = []
+        for url in urls {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                tracks += await scanner.scan(folder: url)
+            } else if let track = await scanner.track(at: url) {
+                tracks.append(track)
+            }
+        }
+        return tracks
+    }
+
+    /// Свежие треки в таблицу: лампочки из базы поверх, порядок и текущий - в базу.
+    private func applyScanned(_ tracks: [Track]) {
+        var flagged = tracks
+        if let store {
+            do {
+                let played = try store.playedURLs(among: tracks.map(\.url))
+                for index in flagged.indices where played.contains(flagged[index].url) {
+                    flagged[index].isPlayed = true
+                }
+            } catch {
+                reportDatabase(error)
+            }
+        }
+        playlist.replaceAll(flagged)
+        persist()
+    }
+
+    // MARK: - Восстановление при запуске
+
+    private func restore() {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let store = self.store else { return }
+            let saved: PlaylistState
+            do {
+                saved = try store.loadPlaylist()
+            } catch {
+                self.reportDatabase(error)
+                return
+            }
+            let restored = PlaylistNavigator.restore(
+                urls: saved.urls,
+                current: saved.current,
+                isExisting: { FileManager.default.fileExists(atPath: $0.path) }
+            )
+            var tracks: [Track] = []
+            for url in restored.urls {
+                if let track = await self.scanner.track(at: url) { tracks.append(track) }
+            }
+            guard !tracks.isEmpty else { return }
+            self.applyScanned(tracks)
+            self.playlist.select(url: restored.current ?? tracks.first?.url)
+            // Восстановленный текущий трек: шапка и волна сразу, без нажатия play.
+            self.showCurrentTrack()
+        }
+    }
+
+    /// Порядок и текущий трек - в базу после каждого изменения структуры.
+    private func persist() {
+        guard let store else { return }
+        do {
+            try store.savePlaylist(playlist.model.allTracks.map(\.url), current: engine.currentURL)
+        } catch {
+            reportDatabase(error)
+        }
+    }
+
+    // MARK: - Связывание
+
+    private func wirePlaylist() {
+        playlist.onTogglePlayed = { [weak self] url, value in
+            guard let self else { return }
+            guard let store = self.store else {
+                // Клик по лампочке без базы - не тихий пропуск: причина снова идёт в статусную строку.
+                self.showError(self.storeFailure ?? "Лампочки и порядок не сохраняются: база недоступна")
+                return
+            }
+            do {
+                try store.setPlayed(url, value)
+            } catch {
+                self.reportDatabase(error)
+            }
+        }
+        playlist.onPlayTrack = { [weak self] track in
+            self?.play(track: track)
+        }
+        playlist.onTogglePlay = { [weak self] in
+            self?.togglePlay()
+        }
+        playlist.onSelectionChange = { [weak self] _ in
+            self?.showCurrentTrack()
+        }
+        playlist.onUpdate = { [weak self] in
+            self?.showCurrentTrack()
+        }
+        playlist.onStructureChange = { [weak self] in
+            self?.persist()
+        }
+    }
+
+    private func wireTransport() {
+        transport.onPlay = { [weak self] in self?.playSelectedOrFirst() }
+        transport.onPause = { [weak self] in self?.engine.pause(); self?.afterTransportChange() }
+        transport.onStop = { [weak self] in self?.stop() }
+        transport.onPrevious = { [weak self] in self?.step(by: -1) }
+        transport.onNext = { [weak self] in self?.step(by: 1) }
+        header.volume.onChange = { [weak self] position in
+            // Ход ручки линейный, громкость движка - логарифмическая (audio taper).
+            self?.engine.volume = VolumeCurve.gain(forPosition: position)
+            UserDefaults.standard.set(position, forKey: MainWindowController.volumeKey)
+        }
+    }
+
+    /// Медиаклавиши и Пункт управления: те же действия App, что и кнопки транспорта.
+    private func wireRemote() {
+        nowPlaying.onPlay = { [weak self] in self?.playSelectedOrFirst() }
+        nowPlaying.onPause = { [weak self] in self?.engine.pause(); self?.afterTransportChange() }
+        nowPlaying.onToggle = { [weak self] in self?.togglePlay() }
+        nowPlaying.onNext = { [weak self] in self?.step(by: 1) }
+        nowPlaying.onPrevious = { [weak self] in self?.step(by: -1) }
+    }
+
+    /// Логотип ровно на оси светофоров (правка владельца 15.09): высоту титлбара и
+    /// положение кнопок задаёт система, поэтому смещение берётся у самой кнопки закрытия,
+    /// а не подбирается константой. Fail fast: окно .titled без кнопки - выравнивать не по чему.
+    private static func align(logoCenter: NSLayoutConstraint, toButtonsOf window: NSWindow, in root: NSView) {
+        guard let close = window.standardWindowButton(.closeButton) else {
+            fatalError("окно без кнопки закрытия: логотип не по чему выравнивать")
+        }
+        let button = close.convert(close.bounds, to: root)
+        logoCenter.constant = root.isFlipped ? button.midY : root.bounds.maxY - button.midY
+    }
+
+    private static func loadVolumePosition() -> Double {
+        guard UserDefaults.standard.object(forKey: volumeKey) != nil else {
+            return defaultVolumePosition
+        }
+        return UserDefaults.standard.double(forKey: volumeKey)
+    }
+
+    // MARK: - Воспроизведение
+
+    /// Fail fast (§6.16): не открылся - алерт с путём и причиной, без автоперехода.
+    private func play(track: Track) {
+        do {
+            try engine.load(track.url)
+            try engine.play()
+        } catch {
+            showPlaybackError(url: track.url, error: error)
+            return
+        }
+        errorText = nil
+        playlist.select(url: track.url)
+        startWave(for: track)
+        afterTransportChange()
+        persist()
+    }
+
+    private func playSelectedOrFirst() {
+        if let track = playlist.selectedTrack ?? playlist.model.displayed.first {
+            play(track: track)
+        }
+    }
+
+    private func togglePlay() {
+        switch engine.state {
+        case .playing:
+            engine.pause()
+            afterTransportChange()
+        case .paused:
+            do {
+                try engine.play()
+                afterTransportChange()
+            } catch {
+                showPlaybackError(url: engine.currentURL, error: error)
+            }
+        case .idle:
+            playSelectedOrFirst()
+        }
+    }
+
+    private func stop() {
+        engine.stop()
+        nowPlaying.clear()
+        afterTransportChange()
+    }
+
+    private func seek(fraction: Double) {
+        engine.seek(fraction: fraction)
+        refreshNowPlaying()
+    }
+
+    /// Конец трека: следующий по текущему порядку строк.
+    /// Последний - воспроизведение встаёт, курсор остаётся в конце (SPEC §6.4):
+    /// движок уже опубликовал долю 1, `stop()` вернул бы курсор в начало.
+    /// Лампочка автоматом не ставится.
+    private func trackEnded() {
+        let visible = playlist.model.displayed.map(\.url)
+        guard let next = PlaylistNavigator.next(after: engine.currentURL, in: visible),
+              let track = playlist.model.displayed.first(where: { $0.url == next })
+        else {
+            afterTransportChange()
+            return
+        }
+        play(track: track)
+    }
+
+    private func step(by direction: Int) {
+        let visible = playlist.model.displayed
+        guard !visible.isEmpty else { return }
+        let urls = visible.map(\.url)
+        let target: URL?
+        if direction > 0 {
+            target = PlaylistNavigator.next(after: engine.currentURL, in: urls)
+        } else {
+            target = PlaylistNavigator.previous(before: engine.currentURL, in: urls)
+        }
+        guard let target, let track = visible.first(where: { $0.url == target }) else {
+            engine.stop()
+            afterTransportChange()
+            return
+        }
+        play(track: track)
+    }
+
+    private func afterTransportChange() {
+        transport.isPlaying = engine.state == .playing
+        refreshNowPlaying()
+        showCurrentTrack()
+    }
+
+    /// Один канал для всех ошибок: красный текст в статусной строке и строка в stderr.
+    private func showError(_ text: String) {
+        FileHandle.standardError.write(Data("Claimp: \(text)\n".utf8))
+        errorText = text
+        refreshChrome()
+    }
+
+    /// Ошибки движка не глотаем: текст в статусную строку красным и строка в stderr.
+    private func report(_ error: PlayerEngineError) {
+        showError(Self.message(for: error))
+    }
+
+    /// Ошибки базы раньше жили только в NSLog: владелец не знал, что лампочки не сохраняются.
+    private func reportDatabase(_ error: Error) {
+        showError("Лампочки и порядок не сохраняются: \(error.localizedDescription)")
+    }
+
+    private static func message(for error: PlayerEngineError) -> String {
+        switch error {
+        case .cannotOpen(let url):
+            return "Ошибка воспроизведения: \(url.lastPathComponent)"
+        case .notLoaded:
+            return "Ошибка воспроизведения: трек не загружен"
+        }
+    }
+
+    /// Тексты ошибок волны: испорченный кэш и обрыв чтения - разные причины для владельца.
+    private static func message(for error: WaveformError, file: String) -> String {
+        switch error {
+        case .cannotOpen:
+            return "Волна не открылась: \(file)"
+        case .cannotRead(_, let frame):
+            return "Волна оборвалась: \(file), фрейм \(frame)"
+        case .badCache:
+            return "Кэш волны испорчен: \(file)"
+        case .cancelled:
+            return "Волна: анализ отменён"
+        }
+    }
+
+    private func showPlaybackError(url: URL?, error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Не удалось воспроизвести"
+        alert.informativeText = "\(url?.path ?? "—")\n\(error.localizedDescription)"
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    // MARK: - Волна
+
+    private func startWave(for track: Track) {
+        waveTask?.cancel()
+        waveURL = track.url
+        // Ошибка прошлой волны снимается новым анализом: она была про другой файл.
+        errorText = nil
+        wave.data = nil
+        wave.duration = track.duration
+        wave.progress = 0
+        lastElapsed = 0
+        let started = Date()
+        waveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await self.analyzer.analyze(url: track.url)
+                try Task.checkCancellation()
+                self.wave.data = data
+                NSLog("T5 wave ready: %@ за %.2f c", track.url.lastPathComponent, Date().timeIntervalSince(started))
+            } catch let error as WaveformError {
+                // Отмена - не ошибка: владелец выбрал другой трек, волна уедет за новым.
+                guard error != .cancelled else { return }
+                self.showError(Self.message(for: error, file: track.url.lastPathComponent))
+            } catch is CancellationError {
+                return
+            } catch {
+                self.showError("Волна не посчиталась: \(track.url.lastPathComponent) (\(error.localizedDescription))")
+            }
+        }
+    }
+
+    /// Тик 10 Гц от движка двигает курсор; подписи времени волна считает сама.
+    private func consumePositions() {
+        positionsTask?.cancel()
+        positionsTask = Task { [weak self] in
+            guard let positions = self?.engine.positions else { return }
+            for await pos in positions {
+                self?.lastElapsed = pos.current
+                self?.wave.progress = pos.fraction
+            }
+        }
+    }
+
+    // MARK: - Now Playing
+
+    private func refreshNowPlaying() {
+        let url = engine.currentURL
+        let track = playlist.model.allTracks.first(where: { $0.url == url })
+        guard let track else {
+            if engine.state == .idle { nowPlaying.clear() }
+            return
+        }
+        nowPlaying.update(
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            duration: track.duration,
+            elapsed: lastElapsed,
+            rate: engine.state == .playing ? 1 : 0,
+            artwork: track.artwork
+        )
+    }
+
+    @objc private func searchChanged() {
+        playlist.setQuery(search.stringValue)
+    }
+
+    /// Текущий трек для шапки и волны (решение владельца 15:46): пока движок держит трек (играет
+    /// или на паузе) - звучащий, без воспроизведения - выделенная строка. Сам выбор - чистая
+    /// функция в Core (`PlaylistNavigator.shown`); здесь только подстановка трека из видимого списка.
+    private var currentTrack: Track? {
+        let playing = engine.state == .idle ? nil : engine.currentURL
+        let url = PlaylistNavigator.shown(playing: playing, selected: playlist.selectedTrack?.url)
+        return url.flatMap { url in playlist.model.displayed.first { $0.url == url } }
+    }
+
+    /// Шапка и волна - на текущем треке. Волна идёт за выделением сразу, не дожидаясь play
+    /// (WAVE-ON-SELECT), но во время воспроизведения и паузы текущий - звучащий трек, поэтому
+    /// выделение волну не переключает: её курсор и перемотка живут от движка (§6.0b).
+    /// Повторный показ того же трека анализ не перезапускает.
+    private func showCurrentTrack() {
+        refreshChrome()
+        guard let track = currentTrack, track.url != waveURL else { return }
+        startWave(for: track)
+    }
+
+    /// Приоритет статусной строки: свежая ошибка (движок, волна, база) - красным, за ней постоянная
+    /// причина, по которой не работают лампочки, и только потом счётчик плейлиста.
+    private func refreshChrome() {
+        let track = currentTrack
+        header.show(track: track)
+        if let text = errorText ?? storeFailure {
+            statusLabel.stringValue = text
+            statusLabel.textColor = Theme.text.danger
+        } else {
+            statusLabel.stringValue = playlist.statusText
+            statusLabel.textColor = Theme.text.secondary
+        }
+    }
+}
+
