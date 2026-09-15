@@ -123,6 +123,18 @@ public struct WaveformStyle: Sendable, Equatable {
         verticalInset: 2,
         minimumBarHeight: 1)
 
+    /// Одноцветная палитра (настройка ⌘, → Волна): все три полосы одним тоном, поэтому смесь
+    /// Mixxx даёт ровный цвет, а динамику несёт только высота столбика. Тон - тот же приглушённый
+    /// фиолетовый, что у акцента интерфейса: волна без спектра не должна спорить с окном.
+    public static let monochrome: WaveformStyle = {
+        var style = WaveformStyle.default
+        let bar = Color(hex: 0xB397E4)
+        style.low = bar
+        style.mid = bar
+        style.high = bar
+        return style
+    }()
+
     /// Цвет столбика - формула Mixxx
     /// (`src/waveform/renderers/waveformrendererrgb.cpp:159-182`): взвешенная сумма цветов полос,
     /// делённая на максимальную компоненту. Нормировка по максимуму - не косметика: без неё

@@ -17,6 +17,9 @@
 # Использование: scripts/verify-launch.sh [path/to/Claimp.app] [секунды ожидания]
 set -euo pipefail
 
+# Тулчейн один на все скрипты и Makefile: SDK macOS 27 с MusicUnderstanding (scripts/toolchain.sh).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toolchain.sh"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 APP=${1:-build/Claimp.app}

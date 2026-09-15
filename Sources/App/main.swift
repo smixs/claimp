@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainController = controller
         controller.show()
         NSApp.activate(ignoringOtherApps: true)
+        if Self.shouldOpenSettingsAtLaunch() { controller.showSettings() }
         guard !pendingURLs.isEmpty else { return }
         controller.loadURLs(pendingURLs)
         pendingURLs = []
@@ -33,8 +34,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    /// Выход из приложения: незавершённый разбор BPM/тональности отменяется, а не досчитывается
+    /// в фоне уже закрытого окна.
+    func applicationWillTerminate(_ notification: Notification) {
+        mainController?.cancelAnalysis()
+    }
+
     @objc private func openDocument(_ sender: Any?) {
         mainController?.showOpenPanel()
+    }
+
+    @objc private func showSettings(_ sender: Any?) {
+        mainController?.showSettings()
+    }
+
+    /// Отладочный ключ: окно настроек открывается сразу после запуска, без клавиатуры
+    /// (`Claimp --open-settings` или `CLAIMP_OPEN_SETTINGS=1`). Нужен для снимков и проверок.
+    private static func shouldOpenSettingsAtLaunch() -> Bool {
+        let info = ProcessInfo.processInfo
+        return info.arguments.contains("--open-settings")
+            || info.environment["CLAIMP_OPEN_SETTINGS"] == "1"
     }
 
     /// Минимальное меню: ⌘Q, ⌘O, правки для поля поиска. Больше ничего в T4 нет.
@@ -45,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings(_:)), keyEquivalent: ","))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu

@@ -6,8 +6,8 @@
 
 <p align="center">
   <a href="https://github.com/smixs/claimp/releases"><img src="https://img.shields.io/github/v/release/smixs/claimp?style=flat-square&color=FE6776" alt="Release"></a>
-  <img src="https://img.shields.io/badge/macOS-26%2B-2B2F3A?style=flat-square" alt="macOS 26+">
-  <img src="https://img.shields.io/badge/Swift-6.3-FFD166?style=flat-square" alt="Swift 6.3">
+  <img src="https://img.shields.io/badge/macOS-27%2B-2B2F3A?style=flat-square" alt="macOS 27+">
+  <img src="https://img.shields.io/badge/Swift-6.4-FFD166?style=flat-square" alt="Swift 6.4">
   <img src="https://img.shields.io/badge/license-Apache--2.0-5CE1E6?style=flat-square" alt="Apache-2.0">
 </p>
 
@@ -28,6 +28,15 @@ on the timeline.
 **A list built for selection.** Year, duration, sort by any column, filter by typing a
 couple of letters, and a lamp you switch on when a track is already in the mix.
 
+**BPM and key, on-device.** Tracks without tempo or key tags get them from Apple's
+MusicUnderstanding framework in the background, two at a time, cached in the library
+database. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
+
+**Settings (⌘,).** One column of groups, no tabs: which playlist columns are visible,
+playlist font size (8-16 pt, the row stays as tight as the glyphs), automatic BPM/key
+analysis with its tempo range and length limit, key format (Camelot / note / both), and
+the waveform palette. Everything applies live, no restart.
+
 ## Install
 
 Download `Claimp-<version>.dmg` from the
@@ -40,10 +49,13 @@ bundle.
 
 ## Requirements
 
-- macOS 26 or newer (`Package.swift`: `.macOS(.v26)`)
-- Swift 6.3 toolchain (Xcode 26.x or the matching Command Line Tools), Swift 6
-  language mode
-- Build verified on Apple Silicon with Swift 6.3.3
+- macOS 27 or newer (`Package.swift`: `.macOS("27.0")`) - the BPM/key analysis runs on
+  Apple's system `MusicUnderstanding` framework, which ships in macOS 27
+- Swift 6.4 toolchain with the macOS 27 SDK, Swift 6 language mode. On this machine it
+  lives in the Command Line Tools, so every build sets
+  `DEVELOPER_DIR=/Library/Developer/CommandLineTools`; `make build` / `make test` do it
+  for you and fail with a clear message if the SDK has no `MusicUnderstanding.framework`
+- Build verified on Apple Silicon with Swift 6.4
 
 ## Build and run
 
@@ -132,11 +144,19 @@ Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Sergey Shima.
   **год**, **длительность**; сортировка кликом по заголовку, фильтр по паре букв.
 - Лампочка «сыграно» живёт в SQLite и переживает перезапуск; порядок плейлиста и
   текущий трек тоже восстанавливаются.
+- BPM и тональность: у треков без тегов считаются на устройстве через системный
+  MusicUnderstanding, по два одновременно, результат кэшируется в базе. Тональность
+  в Camelot (8A), при наведении нота.
+- Настройки (⌘,): видимость колонок, кегль плейлиста, автоанализ с диапазоном темпа,
+  формат тональности, палитра волны. Применяется сразу.
 - Папку можно бросить на окно или на иконку в Dock; медиаклавиши и Now Playing
   работают при неактивном окне.
 
-**Требования:** macOS 26+, Swift 6.3 (Xcode 26.x или соответствующие Command Line
-Tools). Сборка проверена на Apple Silicon, Swift 6.3.3.
+**Требования:** macOS 27+ (анализ BPM и тональности работает на системном фреймворке
+MusicUnderstanding, он появился в macOS 27), Swift 6.4 с SDK macOS 27 - на этой машине
+он в Command Line Tools, поэтому сборка идёт с
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools` (его выставляют `make build` и
+`make test` сами). Сборка проверена на Apple Silicon.
 
 ```bash
 make build     # debug-сборка
@@ -155,7 +175,7 @@ Apple — Gatekeeper не ругается.
 (AppKit-интерфейс). Документы проекта (`SPEC.md`, `PLAN.md`, `research/`, `AGENTS.md`)
 на русском, код и README — на английском.
 
-**Статус:** ранний личный инструмент (v0.1.0), без обещаний поддержки.
+**Статус:** ранний личный инструмент, без обещаний поддержки.
 
 **Лицензия:** Apache License 2.0 (`LICENSE`), Copyright 2026 Sergey Shima. Сторонний
 код и его лицензии — в `NOTICE`.

@@ -28,6 +28,16 @@ final class PlaylistModel {
         query = ""
     }
 
+    /// Подставляет результат разбора в трек; false - трека уже нет в списке или значения те же.
+    /// Тег анализом не перетирается: приоритет живёт в `Track.withAnalysis`.
+    func applyAnalysis(url: URL, bpm: Double?, key: String?) -> Bool {
+        guard let index = allTracks.firstIndex(where: { $0.url == url }) else { return false }
+        let updated = allTracks[index].withAnalysis(bpm: bpm, key: key)
+        guard updated != allTracks[index] else { return false }
+        allTracks[index] = updated
+        return true
+    }
+
     func togglePlayed(url: URL) {
         guard let index = allTracks.firstIndex(where: { $0.url == url }) else { return }
         allTracks[index].isPlayed.toggle()

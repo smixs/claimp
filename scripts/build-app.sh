@@ -4,13 +4,16 @@
 # Основан на шаблоне скилла macos-spm-app-packaging (assets/templates/package_app.sh).
 set -euo pipefail
 
+# Тулчейн один на все скрипты и Makefile: SDK macOS 27 с MusicUnderstanding (scripts/toolchain.sh).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toolchain.sh"
+
 CONF=${1:-release}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 APP_NAME=${APP_NAME:-Claimp}
 BUNDLE_ID=${BUNDLE_ID:-dev.shima.claimp}
-MACOS_MIN_VERSION=${MACOS_MIN_VERSION:-26.0}
+MACOS_MIN_VERSION=${MACOS_MIN_VERSION:-27.0}
 # Подпись. По умолчанию ad-hoc ("-"): локальная сборка и запуск.
 # Дистрибутив: SIGN_ID="Developer ID Application: ..." SIGN_FLAGS="--options runtime --timestamp"
 # (см. цель `dist` в Makefile). SIGN_FLAGS разбивается по пробелам в массив аргументов.
@@ -88,9 +91,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Каталог продуктов спрашиваем у самого SwiftPM: у тулчейна CLT (Swift 6.4, новая система
+# сборки) это `.build/out/Products/<Conf>`, а не `.build/<arch>-apple-macosx/<conf>`, как было
+# у Xcode 26.6. Захардкоженный путь ломал сборку .app молча - «нет бинарника для arm64».
 build_product_path() {
   local arch="$1"
-  local dir=".build/${arch}-apple-macosx/$CONF"
+  local dir
+  dir=$(swift build -c "$CONF" --arch "$arch" --show-bin-path)
   if [[ -f "$dir/$APP_NAME" ]]; then
     echo "$dir/$APP_NAME"
   else

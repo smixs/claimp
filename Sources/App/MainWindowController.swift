@@ -22,6 +22,8 @@ final class MainWindowController {
     private let engine = PlayerEngine()
     private let nowPlaying = NowPlayingBridge()
     private let analyzer = WaveformAnalyzer()
+    /// Фоновый разбор BPM/тональности для треков без тега.
+    private let analysisRunner: AnalysisRunner
 
     /// nil, если боевой SQLite не открылся: лампочки и порядок тогда не сохраняются, причина висит
     /// красным в статусной строке. Подмены памятью нет - правило «фолбэков и тихих пропусков нет».
@@ -35,6 +37,12 @@ final class MainWindowController {
     /// Последняя ошибка (движка, волны или базы): висит в статусной строке, пока не заиграет
     /// следующий трек или не начнётся новый анализ волны.
     private var errorText: String?
+    /// Сколько треков не разобралось в этой сессии: висит счётчиком в статусной строке,
+    /// каждая причина отдельно уходит в stderr. Остальные треки при этом продолжают считаться.
+    private var analysisErrors = 0
+
+    /// Подписка на изменения настроек: снимается вместе с контроллером.
+    private var settingsObserver: NSObjectProtocol?
 
     private var positionsTask: Task<Void, Never>?
     private var waveTask: Task<Void, Never>?
@@ -46,6 +54,7 @@ final class MainWindowController {
         let opened = Self.openStore()
         store = opened.store
         storeFailure = opened.failure
+        analysisRunner = AnalysisRunner(store: opened.store, settings: SettingsStore.shared.value)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: Theme.size.windowWidth, height: Theme.size.windowHeight),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -128,9 +137,9 @@ final class MainWindowController {
         search.focusRingType = .none
         search.placeholderAttributedString = NSAttributedString(
             string: "Поиск",
-            attributes: [.foregroundColor: Theme.text.secondary, .font: Theme.font.row]
+            attributes: [.foregroundColor: Theme.text.secondary, .font: Theme.font.search]
         )
-        search.font = Theme.font.row
+        search.font = Theme.font.search
         search.textColor = Theme.text.primary
         search.sendsSearchStringImmediately = true
         search.target = self
@@ -153,6 +162,8 @@ final class MainWindowController {
         engine.onEndOfTrack = { [weak self] in self?.trackEnded() }
         engine.onError = { [weak self] error in self?.report(error) }
         wirePlaylist()
+        wireAnalysis()
+        wireSettings()
         wireTransport()
         wireRemote()
         nowPlaying.register()
@@ -233,6 +244,7 @@ final class MainWindowController {
         }
         playlist.replaceAll(flagged)
         persist()
+        analysisRunner.start(tracks: flagged)
     }
 
     // MARK: - Восстановление при запуске
@@ -306,6 +318,70 @@ final class MainWindowController {
         playlist.onStructureChange = { [weak self] in
             self?.persist()
         }
+    }
+
+    /// Разбор идёт в фоне: готовые значения садятся в ячейки по мере готовности, ошибки
+    /// считаются, пропуски длинных миксов проговариваются в stderr.
+    private func wireAnalysis() {
+        analysisRunner.onQueued = { [weak self] urls in
+            self?.playlist.markAnalysing(urls: urls)
+        }
+        analysisRunner.onEvent = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .ready(let url, let bpm, let key):
+                self.playlist.applyAnalysis(url: url, bpm: bpm, key: key)
+            case .skipped(let url, let reason):
+                self.playlist.stopAnalysing(url: url)
+                FileHandle.standardError.write(
+                    Data("Claimp: анализ пропущен - \(url.lastPathComponent): \(reason)\n".utf8))
+            case .failed(let url, let reason):
+                self.playlist.stopAnalysing(url: url)
+                self.analysisErrors += 1
+                FileHandle.standardError.write(
+                    Data("Claimp: анализ не удался - \(url.lastPathComponent): \(reason)\n".utf8))
+                self.refreshChrome()
+            case .cancelled(let url):
+                self.playlist.stopAnalysing(url: url)
+            }
+        }
+    }
+
+    /// Настройки (⌘,): подписка на изменения и применение без перезапуска.
+    private func wireSettings() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: SettingsStore.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applySettings() }
+        }
+        applySettings()
+    }
+
+    /// Живое применение настроек: плейлист (кегль, колонки, формат тональности), палитра и
+    /// яркость волны, диапазон и порог анализа.
+    private func applySettings() {
+        let settings = SettingsStore.shared.value
+        playlist.applySettings()
+        wave.style = Self.waveStyle(for: settings)
+        analysisRunner.apply(settings: settings)
+    }
+
+    /// Стиль волны из настроек: спектр или один тон, яркость несыгранной части.
+    /// Обе палитры живут в `WaveformStyle` - литералов волны здесь нет.
+    private static func waveStyle(for settings: AppSettings) -> WaveformStyle {
+        var style = settings.wavePalette == .single ? WaveformStyle.monochrome : WaveformStyle.default
+        style.unplayedBrightness = settings.waveUnplayedBrightness
+        return style
+    }
+
+    /// Окно настроек: пункт меню «Claimp → Настройки…», ⌘, и отладочный ключ запуска.
+    func showSettings() {
+        SettingsWindowController.shared.show()
+    }
+
+    /// Выход из приложения: незавершённый разбор гасится вместе с сессиями анализа.
+    func cancelAnalysis() {
+        analysisRunner.cancel()
     }
 
     private func wireTransport() {
@@ -580,6 +656,11 @@ final class MainWindowController {
         header.show(track: track)
         if let text = errorText ?? storeFailure {
             statusLabel.stringValue = text
+            statusLabel.textColor = Theme.text.danger
+        } else if analysisErrors > 0 {
+            // Ошибки разбора не прячем: счётчик виден, подробности - в stderr.
+            let word = RussianCount.word(analysisErrors, "ошибка", "ошибки", "ошибок")
+            statusLabel.stringValue = "\(playlist.statusText) · анализ: \(analysisErrors) \(word)"
             statusLabel.textColor = Theme.text.danger
         } else {
             statusLabel.stringValue = playlist.statusText

@@ -24,6 +24,9 @@
 #   EXTRA_BANNED_PATTERNS='имя1 имя2' bash scripts/export-public.sh
 set -euo pipefail
 
+# Тулчейн один на все скрипты и Makefile: SDK macOS 27 с MusicUnderstanding (scripts/toolchain.sh).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toolchain.sh"
+
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 EXPORT_BASE=${EXPORT_BASE:-"$ROOT/.scratch/public-export"}
 DEST="$EXPORT_BASE/claimp"

@@ -5,8 +5,9 @@ import Core
 // (.string для внутреннего move, .fileURL наружу) и маска .copy для внешнего приёмника.
 
 enum PlaylistColumn: String, CaseIterable {
-    case played, number, title, artist, year, duration
+    case played, number, title, artist, year, duration, bitrate, bpm, key
 
+    /// Заголовки коротко: девять колонок должны влезать в минимальные 420 pt окна.
     var headerTitle: String {
         switch self {
         case .played: return "●"
@@ -15,20 +16,25 @@ enum PlaylistColumn: String, CaseIterable {
         case .artist: return "Исполнитель"
         case .year: return "Год"
         case .duration: return "Длит."
+        case .bitrate: return "kbps"
+        case .bpm: return "BPM"
+        case .key: return "Key"
         }
     }
 
-    var sortField: TrackSortField {
-        TrackSortField(rawValue: rawValue) ?? .number
+    /// Поле сортировки для клика по заголовку; nil - колонка не сортируется.
+    var sortField: TrackSortField? {
+        TrackSortField.forColumnKey(rawValue)
     }
 
     /// Фиксированные ширины из SPEC §4.1; текстовые колонки растут.
-    @MainActor func applyWidth(to column: NSTableColumn) {
+    /// Ширина `Key` зависит от формата тональности из настроек: «8A · Am» длиннее «8A».
+    @MainActor func applyWidth(to column: NSTableColumn, keyFormat: KeyFormat = .camelot) {
         switch self {
         case .played:
-            fix(column, Theme.column.played)
+            fix(column, Theme.column.scaled(Theme.column.played))
         case .number:
-            fix(column, Theme.column.number)
+            fix(column, Theme.column.scaled(Theme.column.number))
         case .title:
             column.width = Theme.column.titleIdeal
             column.minWidth = Theme.column.titleMin
@@ -40,14 +46,23 @@ enum PlaylistColumn: String, CaseIterable {
             column.maxWidth = Theme.column.artistMax
             column.resizingMask = [.userResizingMask, .autoresizingMask]
         case .year:
-            fix(column, Theme.column.year)
+            fix(column, Theme.column.scaled(Theme.column.year))
         case .duration:
-            fix(column, Theme.column.duration)
+            fix(column, Theme.column.scaled(Theme.column.duration))
+        case .bitrate:
+            fix(column, Theme.column.scaled(Theme.column.bitrate))
+        case .bpm:
+            fix(column, Theme.column.scaled(Theme.column.bpm))
+        case .key:
+            fix(column, Theme.column.scaled(keyFormat == .both ? Theme.column.keyBoth : Theme.column.key))
         }
     }
 
     var alignsRight: Bool {
-        self == .number || self == .year || self == .duration
+        switch self {
+        case .number, .year, .duration, .bitrate, .bpm: return true
+        case .played, .title, .artist, .key: return false
+        }
     }
 
     @MainActor private func fix(_ column: NSTableColumn, _ width: CGFloat) {
@@ -133,8 +148,8 @@ final class FlatHeaderCell: NSTableHeaderCell {
         )
         let height = title.size().height
         title.draw(in: NSRect(
-            x: cellFrame.minX + Theme.spacing.xs, y: cellFrame.midY - height / 2,
-            width: max(0, cellFrame.width - Theme.spacing.s), height: height
+            x: cellFrame.minX + Theme.column.cellInset, y: cellFrame.midY - height / 2,
+            width: max(0, cellFrame.width - 2 * Theme.column.cellInset), height: height
         ))
     }
 
@@ -245,8 +260,8 @@ final class PlaylistTextCell: NSTableCellView, SelectionTinting {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Theme.spacing.xs),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Theme.spacing.xs),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Theme.column.cellInset),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Theme.column.cellInset),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -296,10 +311,21 @@ final class PlaylistTableView: NSTableView {
 }
 
 /// Diffable-источник с одной секцией; идентификатор строки - URL трека.
+/// Клик по заголовку приходит в @objc-метод объекта, который стоит dataSource таблицы,
+/// а не делегата: реализация в контроллере не вызывается вовсе. Поэтому метод живёт здесь
+/// и отдаёт работу через хук - как pasteboardWriterForRow.
 final class PlaylistDataSource: NSTableViewDiffableDataSource<Int, URL> {
+    var sortHandler: (([NSSortDescriptor]) -> Void)?
     var writerForRow: ((Int) -> NSPasteboardItem?)?
     var validateDropHandler: ((NSDraggingInfo, Int) -> NSDragOperation)?
     var acceptDropHandler: ((NSDraggingInfo, Int) -> Bool)?
+
+    /// Таблица зовёт метод с главного потока; @MainActor нужен, чтобы читать sortDescriptors.
+    @MainActor @objc func tableView(
+        _ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]
+    ) {
+        sortHandler?(tableView.sortDescriptors)
+    }
 
     @objc func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         writerForRow?(row)

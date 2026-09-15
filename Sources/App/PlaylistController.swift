@@ -1,3 +1,4 @@
+import Analysis
 import AppKit
 import Core
 
@@ -18,6 +19,11 @@ final class PlaylistController: NSObject {
     var onStructureChange: (() -> Void)?
 
     private var dataSource: PlaylistDataSource?
+    /// Треки, по которым сейчас считается BPM/тональность: в пустых ячейках стоит плейсхолдер,
+    /// как тонкая осевая линия на волне, пока она не посчитана.
+    private var analysing: Set<URL> = []
+    /// Плейсхолдер занятой ячейки.
+    private static let analysisPlaceholder = "·"
 
     var statusText: String {
         PlaylistSummary.text(for: model.displayed)
@@ -45,6 +51,27 @@ final class PlaylistController: NSObject {
         model.query = query
         applySnapshot()
         notifyUpdate()
+    }
+
+    /// Треки поставлены в очередь анализа: ячейки BPM/Key показывают плейсхолдер.
+    func markAnalysing(urls: [URL]) {
+        analysing.formUnion(urls)
+        for url in urls { refreshAnalysisCells(url: url) }
+    }
+
+    /// Разбор готов: значения уходят в модель (тег важнее) и в видимые ячейки, без перестроения
+    /// таблицы - строка не мигает и выделение не слетает.
+    func applyAnalysis(url: URL, bpm: Double?, key: String?) {
+        analysing.remove(url)
+        _ = model.applyAnalysis(url: url, bpm: bpm, key: key)
+        refreshAnalysisCells(url: url)
+    }
+
+    /// Разбор этого трека закончился ничем (ошибка, пропуск, отмена): плейсхолдер снимается,
+    /// ячейка снова пустая.
+    func stopAnalysing(url: URL) {
+        analysing.remove(url)
+        refreshAnalysisCells(url: url)
     }
 
     func togglePlayed(url: URL) {
@@ -77,7 +104,6 @@ final class PlaylistController: NSObject {
 
     private func setupTable() {
         tableView.delegate = self
-        tableView.rowHeight = Theme.size.row
         tableView.style = .plain
         tableView.selectionHighlightStyle = .none
         tableView.usesAlternatingRowBackgroundColors = false
@@ -98,7 +124,9 @@ final class PlaylistController: NSObject {
             header.alignment = column.alignsRight ? .right : .left
             tableColumn.headerCell = header
             tableColumn.title = column.headerTitle
-            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.sortField.rawValue, ascending: true)
+            if let field = column.sortField {
+                tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: field.rawValue, ascending: true)
+            }
             column.applyWidth(to: tableColumn)
             tableView.addTableColumn(tableColumn)
         }
@@ -115,6 +143,7 @@ final class PlaylistController: NSObject {
         let source = PlaylistDataSource(tableView: tableView) { [weak self] tableView, column, _, item in
             self?.makeCell(tableView: tableView, column: column, item: item) ?? NSView()
         }
+        source.sortHandler = { [weak self] descriptors in self?.applySort(descriptors) }
         source.writerForRow = { [weak self] row in self?.pasteboardItem(forRow: row) }
         source.validateDropHandler = { [weak self] info, row in self?.validateDrop(info: info, row: row) ?? [] }
         source.acceptDropHandler = { [weak self] info, row in self?.acceptDrop(info: info, row: row) ?? false }
@@ -137,6 +166,38 @@ final class PlaylistController: NSObject {
         scrollView.borderType = .noBorder
 
         applySnapshot()
+        applySettings()
+    }
+
+    // MARK: - Настройки (⌘,)
+
+    /// Настройки применяются на лету, без перезапуска: кегль и высота строки, видимость колонок,
+    /// формат тональности. Сами числа считает `Theme` от кегля из `SettingsStore`.
+    func applySettings() {
+        let settings = SettingsStore.shared.value
+        let visible = Set(PlaylistColumns.visible(
+            all: PlaylistColumn.allCases.map(\.rawValue), hidden: settings.hiddenColumns))
+        tableView.rowHeight = Theme.size.row
+        for tableColumn in tableView.tableColumns {
+            let key = tableColumn.identifier.rawValue
+            tableColumn.isHidden = !visible.contains(key)
+            (tableColumn.headerCell as? FlatHeaderCell)?.font = Theme.font.columnHeader
+            // Ширины пересчитываются от кегля и формата тональности («8A · Am» шире «8A»).
+            PlaylistColumn(rawValue: key)?.applyWidth(to: tableColumn, keyFormat: settings.keyFormat)
+        }
+        // Ширины изменились: таблица раздаёт свою ширину заново, текстовые колонки ужимаются
+        // до минимумов, прежде чем крайняя уедет за край окна.
+        tableView.sizeToFit()
+        tableView.headerView?.needsDisplay = true
+        reloadCells()
+    }
+
+    /// Перерисовка всех ячеек без перестроения списка: выделение и прокрутка на месте.
+    private func reloadCells() {
+        guard let dataSource else { return }
+        var snapshot = dataSource.snapshot()
+        snapshot.reloadItems(snapshot.itemIdentifiers)
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     // MARK: - Снапшот и ячейки
@@ -176,6 +237,8 @@ final class PlaylistController: NSObject {
         cell.label.alignment = columnKind.alignsRight ? .right : .left
         cell.baseColor = (columnKind == .title || columnKind == .artist) ? Theme.text.primary : Theme.text.secondary
         cell.label.stringValue = text(track: track, number: index + 1, column: columnKind)
+        // Ячейки переиспользуются: подсказку выставляем всегда, иначе она останется от чужой строки.
+        cell.toolTip = tooltip(track: track, column: columnKind)
         cell.setSelected(selected)
         return cell
     }
@@ -192,6 +255,48 @@ final class PlaylistController: NSObject {
         case .artist: return track.artist
         case .year: return track.displayYear
         case .duration: return track.displayDuration
+        case .bitrate: return track.displayBitrate
+        case .bpm: return placeholderIfBusy(track.displayBPM, url: track.url)
+        case .key: return placeholderIfBusy(keyText(track.displayKey), url: track.url)
+        }
+    }
+
+    /// Тональность в формате из настроек (Camelot / нота / оба). Тег в чужой записи («Am»,
+    /// «Fmin») как Camelot не разбирается - показываем его как есть, а не выдумываем перевод.
+    private func keyText(_ stored: String) -> String {
+        guard let key = MusicalKey(camelot: stored) else { return stored }
+        return key.display(SettingsStore.shared.value.keyFormat)
+    }
+
+    /// Пустая ячейка у трека в очереди анализа показывает плейсхолдер, а не пустоту:
+    /// «считается» и «нет значения» - разные состояния.
+    private func placeholderIfBusy(_ value: String, url: URL) -> String {
+        value.isEmpty && analysing.contains(url) ? Self.analysisPlaceholder : value
+    }
+
+    /// Подсказка колонки Key: "8A · Am". Тег, который не разбирается как Camelot, показывается
+    /// как есть и подсказки не получает.
+    private func tooltip(track: Track, column: PlaylistColumn) -> String? {
+        guard column == .key, let key = track.key, let parsed = MusicalKey(camelot: key) else {
+            return nil
+        }
+        return "\(parsed.camelot) · \(parsed.shortName)"
+    }
+
+    /// Обновление готовых значений прямо в живых ячейках (как у лампочки): снапшот не
+    /// перестраивается, поэтому таблица не мигает. Невидимые строки возьмут значение из модели,
+    /// когда доедут до экрана.
+    private func refreshAnalysisCells(url: URL) {
+        guard let row = model.displayed.firstIndex(where: { $0.url == url }) else { return }
+        let track = model.displayed[row]
+        for column in [PlaylistColumn.bpm, PlaylistColumn.key] {
+            guard let index = tableView.tableColumns.firstIndex(
+                where: { $0.identifier.rawValue == column.rawValue }),
+                let cell = tableView.view(atColumn: index, row: row, makeIfNecessary: false)
+                    as? PlaylistTextCell
+            else { continue }
+            cell.label.stringValue = text(track: track, number: row + 1, column: column)
+            cell.toolTip = tooltip(track: track, column: column)
         }
     }
 
@@ -235,6 +340,22 @@ final class PlaylistController: NSObject {
         return true
     }
 
+    // MARK: - Сортировка кликом по заголовку
+
+    /// Вызывает PlaylistDataSource: sortDescriptorsDidChange - метод NSTableViewDataSource,
+    /// таблица зовёт его только у своего dataSource, не у делегата.
+    /// Чужой ключ дескриптора игнорируется, порядок остаётся прежним.
+    func applySort(_ descriptors: [NSSortDescriptor]) {
+        guard let descriptor = descriptors.first,
+              let key = descriptor.key,
+              let field = TrackSortField.forColumnKey(key)
+        else { return }
+        model.sortField = field
+        model.ascending = descriptor.ascending
+        applySnapshot()
+        notifyUpdate()
+    }
+
     // MARK: - Прочее
 
     @objc private func doubleClicked() {
@@ -248,16 +369,6 @@ final class PlaylistController: NSObject {
 
     @objc func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         PlaylistRowView()
-    }
-
-    @objc func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard let key = tableView.sortDescriptors.first?.key,
-              let field = TrackSortField(rawValue: key)
-        else { return }
-        model.sortField = field
-        model.ascending = tableView.sortDescriptors.first?.ascending ?? true
-        applySnapshot()
-        notifyUpdate()
     }
 
     @objc func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {

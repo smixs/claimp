@@ -94,6 +94,7 @@ public struct LibraryScanner: LibraryScanning, Sendable {
         // Файл без единой декодируемой секунды - нечитаемый: пропускаем молча.
         let duration = await validatedDuration(properties.duration, url: url)
         guard duration.isFinite, duration > 0 else { return nil }
+        let rawTags = stringTags(from: metadata)
         return Track(
             url: url,
             title: nonEmpty(metadata.title) ?? url.deletingPathExtension().lastPathComponent,
@@ -102,6 +103,8 @@ public struct LibraryScanner: LibraryScanning, Sendable {
             year: YearParser.year(from: metadata.releaseDate),
             duration: duration,
             bitrate: rounded(properties.bitrate),
+            bpm: metadata.bpm.map(Double.init) ?? TagFields.bpm(in: rawTags),
+            key: await musicalKey(tags: rawTags, url: url),
             sampleRate: rounded(properties.sampleRate),
             format: normalizedFormat(properties.formatName),
             artwork: cover(from: metadata),
@@ -125,6 +128,40 @@ public struct LibraryScanner: LibraryScanning, Sendable {
         }
         if probed.isFinite, probed > 0, abs(probed - duration) > 1.0 { return probed }
         return duration
+    }
+
+    /// Сырые теги, которые SFB не разложил по свойствам: Xiph и APE отдают их в
+    /// additionalMetadata, ID3v2 и MP4 - не отдают вовсе (в SFB нет ни разбора TKEY,
+    /// ни additionalMetadata для этих контейнеров, проверено по исходникам SFBAudioMetadata+TagLib*).
+    static func stringTags(from metadata: AudioMetadata) -> [String: String] {
+        guard let additional = metadata.additionalMetadata else { return [:] }
+        var tags: [String: String] = [:]
+        for (rawName, rawValue) in additional {
+            guard let name = rawName as? String, let value = rawValue as? String else { continue }
+            tags[name] = value
+        }
+        return tags
+    }
+
+    /// Тональность: сначала теги от SFB (Xiph, APE), для ID3v2 и MP4 - метаданные
+    /// AVFoundation (единственный доступный источник TKEY/©key без правки Package.swift).
+    /// Цена второго чтения - 1-10 мс на файл и только когда тега в SFB не нашлось;
+    /// идёт внутри detached-скана, главный поток не занимает.
+    static func musicalKey(tags: [String: String], url: URL) async -> String? {
+        if let key = TagFields.musicalKey(in: tags) { return key }
+        let items: [AVMetadataItem]
+        do {
+            items = try await AVURLAsset(url: url).load(.metadata)
+        } catch {
+            return nil
+        }
+        var keyTags: [String: String] = [:]
+        for item in items {
+            guard let name = item.identifier?.rawValue, TagFields.isKeyName(name) else { continue }
+            guard let value = try? await item.load(.stringValue) else { continue }
+            keyTags[name] = value
+        }
+        return TagFields.musicalKey(in: keyTags)
     }
 
     /// TagLib отдаёт bitrate в kbps, sampleRate в Hz; нули/мусор TagLib не отдаёт вовсе.

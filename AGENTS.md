@@ -1,20 +1,20 @@
 # Ранбук исполнителя Claimp (читать целиком до первой команды)
 
-Проект: нативный macOS-плеер, SwiftPM без Xcode-проекта, Swift 6.3, macOS 26+. Корень: worktree этого репозитория.
+Проект: нативный macOS-плеер, SwiftPM без Xcode-проекта, Swift 6.4 (SDK macOS 27 из Command Line Tools), macOS 27+. Корень: worktree этого репозитория.
 Документы: `SPEC.md` (контракты и поведение), `DECISIONS.md` (решения владельца, последние блоки главнее), `PLAN.md`, спека твоей задачи в `.scratch/work/tasks/`.
 
 ## Команды (только эти, из корня worktree)
 | Что | Команда | Норма |
 |---|---|---|
-| Сборка | `swift build` | exit 0, 0 warnings, ~40 с тёплая |
-| Тесты | `swift test` (полный) или `swift test --filter <Suite>` | exit 0; при нагрузке машины `--no-parallel` |
+| Сборка | `make build` (или `DEVELOPER_DIR=/Library/Developer/CommandLineTools swift build`) | exit 0, 0 warnings, ~40 с тёплая |
+| Тесты | `make test` (или `DEVELOPER_DIR=... swift test --filter <Suite>`) | exit 0; при нагрузке машины `--no-parallel` |
 | Приложение | `bash scripts/build-app.sh` → `build/Claimp.app` | exit 0 |
 | Запуск | `open build/Claimp.app` (плейлист восстановится из базы) или `open -a build/Claimp.app <папка с треками>` | окно ~500×760 |
 | Скриншот | `sleep 5; screencapture -x <репо>/.scratch/work/evidence/<задача>/<имя>.png` | смотреть самому (Read), сравнивать с эталоном |
 | Остановка | `pkill -x Claimp` | всегда в конце |
 | Лог гейта | каждая проверка отдельной строкой, вывод в `.scratch/work/gates/<задача>.log`; на проверочных командах пайпы (`\| tail`, `\| grep`) запрещены | |
 
-Корпус для живых проверок: папка с треками на машине исполнителя (в репозиторий не входит), один длинный трек ~60 мин для проверки памяти и волны, фикстуры с тегами - `Tests/Fixtures/`.
+Корпус для живых проверок: папка с треками на машине исполнителя (в репозиторий не входит; живые тесты анализатора берут её из `CLAIMP_CORPUS=~/Music/deemix make test`, без переменной пропускаются), один длинный трек ~60 мин для проверки памяти и волны, фикстуры с тегами - `Tests/Fixtures/`.
 
 ## Порядок работы
 1. `git worktree add <репо>/.worktrees/<задача> -b <задача> master`, работать только там. Главный checkout и чужие worktree не трогать.
@@ -46,3 +46,8 @@
 - Drag-out файла работает из двух мест: строка плейлиста и обложка. Волна = только перемотка, drag с волны отменён.
 - Шапка при любой ширине: обложка у левого края, текст и транспорт прижаты к обложке; фейдер громкости прилеплен к правому краю; пустота между ними.
 - Волна: полный спектр цветов как у Serato (красный → жёлтый → зелёный → синий → фиолетовый), не одна тёплая гамма.
+
+## Тулчейн (с 15.09, анализ BPM/тональности)
+- Сборка и тесты только с `DEVELOPER_DIR=/Library/Developer/CommandLineTools` (Swift 6.4, SDK macOS 27 с MusicUnderstanding); Xcode 26.6 не подходит, обновлять и скачивать ничего не нужно. Makefile и scripts выставляют это сами; вручную: `DEVELOPER_DIR=/Library/Developer/CommandLineTools swift build`.
+- Два известных шума этого тулчейна, не код: (1) `external macro implementation type 'TestingMacros...' could not be found` на `swift test`/`swift build --build-tests` - `make test` собирает тесты серийно (`-j 1`), руками: `swift build --build-tests -j 1 && swift test --skip-build`; (2) `ld: warning: search path '/Library/Developer/CommandLineTools/Developer/...' not found` на каждой цели - предупреждения линкера CLT, в норму «0 warnings» не входят.
+- Одна точка: `scripts/toolchain.sh` (его `source`-ят все скрипты, Makefile зовёт целью `toolchain`). Нет `MusicUnderstanding.framework` в SDK - остановка с понятной ошибкой до сборки, а не `no such module` посреди компиляции.

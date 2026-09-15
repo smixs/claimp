@@ -16,6 +16,12 @@ public struct Track: Sendable, Equatable, Identifiable {
     public let duration: TimeInterval
     /// kbps, округлённый.
     public let bitrate: Int?
+    /// Темп: сначала тег (TBPM/BPM/tmpo), потом анализ (`withAnalysis`); нет ни того, ни
+    /// другого - nil и пустая ячейка.
+    public var bpm: Double?
+    /// Тональность: тег (TKEY/INITIALKEY/©key) как написан ("8A", "Am"), иначе код Camelot
+    /// от анализа; нет ни того, ни другого - nil.
+    public var key: String?
     /// Hz.
     public let sampleRate: Int?
     /// "MP3", "FLAC", "WAV", "AIFF" - нормализованное имя формата из SFBAudioProperties.
@@ -33,6 +39,8 @@ public struct Track: Sendable, Equatable, Identifiable {
         year: Int?,
         duration: TimeInterval,
         bitrate: Int?,
+        bpm: Double? = nil,
+        key: String? = nil,
         sampleRate: Int?,
         format: String,
         artwork: Data?,
@@ -45,16 +53,55 @@ public struct Track: Sendable, Equatable, Identifiable {
         self.year = year
         self.duration = duration
         self.bitrate = bitrate
+        self.bpm = bpm
+        self.key = key
         self.sampleRate = sampleRate
         self.format = format
         self.artwork = artwork
         self.isPlayed = isPlayed
     }
 
+    /// Темп с учётом приоритета: тег важнее анализа (решение владельца 15.09 17:57 и 19:00).
+    /// Чистая функция: у неё нет ни файла, ни базы, поэтому она и проверяется тестом.
+    public static func resolvedBPM(tag: Double?, analyzed: Double?) -> Double? {
+        tag ?? analyzed
+    }
+
+    /// То же для тональности: тег как написан важнее нашего кода Camelot.
+    public static func resolvedKey(tag: String?, analyzed: String?) -> String? {
+        tag ?? analyzed
+    }
+
+    /// Трек с подставленными результатами анализа: заполняются только пустые поля,
+    /// теги анализом не перетираются.
+    public func withAnalysis(bpm analyzedBPM: Double?, key analyzedKey: String?) -> Track {
+        var updated = self
+        updated.bpm = Self.resolvedBPM(tag: bpm, analyzed: analyzedBPM)
+        updated.key = Self.resolvedKey(tag: key, analyzed: analyzedKey)
+        return updated
+    }
+
     /// Год для колонки таблицы: нет года в теге - пустая ячейка, не «0» и не «—».
     public var displayYear: String {
         guard let year else { return "" }
         return String(year)
+    }
+
+    /// Битрейт для колонки: нет значения - пустая ячейка.
+    public var displayBitrate: String {
+        guard let bitrate, bitrate > 0 else { return "" }
+        return String(bitrate)
+    }
+
+    /// Темп для колонки: целое без дробной части (174.0 → "174"); нет тега - пусто.
+    public var displayBPM: String {
+        guard let bpm else { return "" }
+        return String(Int(bpm.rounded()))
+    }
+
+    /// Тональность для колонки: текст тега как есть; нет тега - пусто.
+    public var displayKey: String {
+        key ?? ""
     }
 
     /// "32:07", при часе и больше - "1:12:45".

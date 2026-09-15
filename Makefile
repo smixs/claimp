@@ -1,4 +1,11 @@
-.PHONY: build test app run clean dist notarize verify release
+.PHONY: build test app run clean dist notarize verify release toolchain
+
+# Тулчейн один на всех: анализ BPM/тональности собирается только SDK macOS 27 из
+# Command Line Tools (в SDK Xcode 26.6 нет MusicUnderstanding.framework). Значение
+# можно переопределить снаружи, но цель `toolchain` проверит, что фреймворк на месте,
+# и остановит сборку с понятной причиной. Вручную: DEVELOPER_DIR=... swift build.
+DEVELOPER_DIR ?= /Library/Developer/CommandLineTools
+export DEVELOPER_DIR
 
 # Версия берётся из version.env (тот же источник, что и у build-app.sh).
 VERSION = $(shell sed -n 's/^MARKETING_VERSION=//p' version.env)
@@ -17,11 +24,17 @@ DIST_SIGN_FLAGS = --options runtime --timestamp
 # Профиль чужой команды не подойдёт: notarytool проверяет, что Team ID подписи совпадает.
 NOTARY_PROFILE ?= majento-notary
 
-build:
+toolchain:
+	scripts/toolchain.sh
+
+build: toolchain
 	swift build
 
-test:
-	swift test
+# Тесты собираются серийно: параллельная сборка тулчейна CLT иногда компилирует тест-таргет
+# раньше плагина макросов swift-testing («TestingMacros ... not found»), -j 1 это снимает.
+test: toolchain
+	swift build --build-tests -j 1
+	swift test --skip-build
 
 app:
 	scripts/build-app.sh
@@ -63,7 +76,7 @@ notarize:
 # Первые два шага - про дефект релиза 0.1.0: аксессор ресурсов модуля находил
 # `Claimp_App.bundle` по пути каталога сборки, поэтому на машине разработчика всё
 # работало, а установленное приложение падало на старте.
-verify:
+verify: toolchain
 	if grep -rn "Bundle\.module" Sources; then echo "ERROR: аксессор ресурсов модуля в Sources - установленное приложение не найдёт Claimp_App.bundle"; exit 1; fi
 	scripts/verify-launch.sh "$(APP_BUNDLE)"
 	codesign -vvv --deep --strict "$(APP_BUNDLE)"

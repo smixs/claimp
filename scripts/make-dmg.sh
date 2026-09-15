@@ -5,6 +5,9 @@
 # Использование: scripts/make-dmg.sh <path/to/Claimp.app> <output.dmg>
 set -euo pipefail
 
+# Тулчейн один на все скрипты и Makefile: SDK macOS 27 с MusicUnderstanding (scripts/toolchain.sh).
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toolchain.sh"
+
 if [[ $# -ne 2 ]]; then
   echo "usage: scripts/make-dmg.sh <Claimp.app> <out.dmg>" >&2
   exit 2

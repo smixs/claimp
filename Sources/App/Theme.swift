@@ -1,4 +1,5 @@
 import AppKit
+import Core
 
 /// Тема окна: плоская, тёмная, по стилистике research/owner-ref-neumorphism-dark.png
 /// (палитра, типографика, пропорции, скругления), но без объёма - решение владельца
@@ -106,27 +107,61 @@ enum Theme {
         static let logoHeight: CGFloat = 18
         static let logoLeading: CGFloat = 78
 
-        static let row: CGFloat = 26
-        static let lamp: CGFloat = 11
-        static let lampBorder: CGFloat = 1.5
+        /// Плотный плейлист (решение владельца 15.09 17:57) с кеглем из настроек (⌘,):
+        /// высота строки = высота глифов, без межстрочного воздуха (`PlaylistFont.rowHeight`).
+        /// На дефолтных 11 pt это те же 13 pt, что были у прежних 9 pt.
+        @MainActor static var row: CGFloat {
+            CGFloat(PlaylistFont.rowHeight(forRow: SettingsStore.shared.value.playlistFontSize))
+        }
+        /// Лампочка и её контур уменьшены вместе со строкой, чтобы не упираться в края.
+        static let lamp: CGFloat = 6
+        static let lampBorder: CGFloat = 1
         static let hairline: CGFloat = 1
         static let dropBorder: CGFloat = 2
+
+        /// Окно настроек (⌘,): одна колонка групп, ширина держит самую длинную подпись,
+        /// высота - по содержимому. Вкладок нет (решение владельца 15.09 19:49).
+        static let settingsWidth: CGFloat = 420
+        /// Слайдеры настроек: дорожка и колонка с текущим значением справа от неё.
+        static let settingsSlider: CGFloat = 170
+        static let settingsValue: CGFloat = 54
+        /// Колонка подписи слева от контрола: «Размер шрифта», «Диапазон BPM».
+        static let settingsLabel: CGFloat = 150
     }
 
     /// Ширины колонок таблицы (SPEC §4.1): текстовые растут, остальные фиксированы.
     enum column {
-        static let played: CGFloat = 22
-        static let number: CGFloat = 26
-        static let titleMin: CGFloat = 130
-        /// Стартовая ширина: сумма колонок влезает в минимальные 420 pt окна,
+        /// Ширины заданы для дефолтного кегля строки; при другом кегле фиксированные колонки
+        /// масштабируются вместе с ним - цифры и «8A» не должны обрезаться (настройка ⌘,).
+        @MainActor static func scaled(_ width: CGFloat) -> CGFloat {
+            (width * CGFloat(PlaylistFont.scale(forRow: SettingsStore.shared.value.playlistFontSize)))
+                .rounded()
+        }
+
+        /// Поля текста в ячейке и в заголовке: у плотной строки отступы меньше общих spacing.
+        static let cellInset: CGFloat = 3
+        static let played: CGFloat = 16
+        static let number: CGFloat = 22
+        /// Минимумы текстовых колонок подрезаны под девять колонок: сумма фиксированных
+        /// (16+22+32+44+52+48+44 = 258) плюс 92 и 70 ровно укладывается в минимальные 420 pt окна.
+        static let titleMin: CGFloat = 92
+        /// Стартовая ширина: сумма колонок влезает в окно по умолчанию (500 pt),
         /// на широком окне таблица растягивает текстовые колонки сама.
-        static let titleIdeal: CGFloat = 150
+        static let titleIdeal: CGFloat = 130
         static let titleMax: CGFloat = 800
-        static let artistMin: CGFloat = 100
-        static let artistIdeal: CGFloat = 120
+        static let artistMin: CGFloat = 70
+        static let artistIdeal: CGFloat = 100
         static let artistMax: CGFloat = 600
-        static let year: CGFloat = 44
-        static let duration: CGFloat = 52
+        static let year: CGFloat = 32
+        static let duration: CGFloat = 44
+        /// kbps целым числом.
+        static let bitrate: CGFloat = 52
+        /// Темп без дробной части.
+        static let bpm: CGFloat = 48
+        /// Тональность как в теге: "8A", "Am".
+        static let key: CGFloat = 44
+        /// Формат «оба» из настроек: "8A · Am" не влезает в 44 pt.
+        static let keyBoth: CGFloat = 66
     }
 
     /// Типографика эталона: крупный жирный заголовок, лёгкие подписи.
@@ -134,9 +169,25 @@ enum Theme {
         static var title: NSFont { .systemFont(ofSize: 17, weight: .bold) }
         static var artist: NSFont { .systemFont(ofSize: 13, weight: .regular) }
         static var tech: NSFont { .systemFont(ofSize: 11, weight: .regular) }
-        static var row: NSFont { .systemFont(ofSize: 13, weight: .regular) }
-        static var rowDigits: NSFont { .monospacedDigitSystemFont(ofSize: 13, weight: .regular) }
-        static var columnHeader: NSFont { .systemFont(ofSize: 11, weight: .regular) }
+        /// Кегль строки плейлиста живёт в настройках (⌘,), по умолчанию 11 pt - на 20 % больше
+        /// прежних 9 (решение владельца 15.09 19:49). Границы и производные размеры - `PlaylistFont`.
+        @MainActor static var rowSize: CGFloat {
+            CGFloat(PlaylistFont.clamp(SettingsStore.shared.value.playlistFontSize))
+        }
+        @MainActor static var row: NSFont { .systemFont(ofSize: rowSize, weight: .regular) }
+        @MainActor static var rowDigits: NSFont {
+            .monospacedDigitSystemFont(ofSize: rowSize, weight: .regular)
+        }
+        /// Заголовки колонок - пропорция строки (было 8 pt при 9 pt строки).
+        @MainActor static var columnHeader: NSFont {
+            .systemFont(ofSize: CGFloat(PlaylistFont.headerSize(forRow: Double(rowSize))), weight: .regular)
+        }
+        /// Подписи и контролы окна настроек.
+        static var control: NSFont { .systemFont(ofSize: 12, weight: .regular) }
+        /// Заголовок группы в окне настроек.
+        static var section: NSFont { .systemFont(ofSize: 11, weight: .semibold) }
+        /// Поле поиска: плотность плейлиста его не касается.
+        static var search: NSFont { .systemFont(ofSize: 13, weight: .regular) }
         static var status: NSFont { .monospacedDigitSystemFont(ofSize: 11, weight: .regular) }
         /// Подписи фейдера: «VOL» и проценты.
         static var micro: NSFont { .systemFont(ofSize: 10, weight: .regular) }
