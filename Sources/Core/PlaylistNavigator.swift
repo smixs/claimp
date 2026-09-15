@@ -12,6 +12,21 @@ public enum PlaylistNavigator {
         return next < urls.endIndex ? urls[next] : nil
     }
 
+    /// Случайный следующий (кнопка Random, решение владельца 16.09 ~01:55): любой трек списка,
+    /// кроме текущего. Один трек в списке - он же и следующий, пустой список - nil.
+    /// Генератор параметром: в бою системный, в тесте сидированный - результат проверяется, а не
+    /// принимается на веру.
+    public static func random(
+        excluding url: URL?,
+        in urls: [URL],
+        using generator: inout some RandomNumberGenerator
+    ) -> URL? {
+        guard !urls.isEmpty else { return nil }
+        let candidates = urls.filter { $0 != url }
+        guard !candidates.isEmpty else { return urls.first }
+        return candidates.randomElement(using: &generator)
+    }
+
     /// Предыдущий по порядку. Первый даёт nil, неизвестный url - последний.
     public static func previous(before url: URL?, in urls: [URL]) -> URL? {
         guard !urls.isEmpty else { return nil }

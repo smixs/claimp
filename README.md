@@ -26,11 +26,14 @@ Bitwig, Finder, anywhere that takes files. No export, no dialogs, the real file 
 on the timeline.
 
 **A list built for selection.** Year, duration, sort by any column, filter by typing a
-couple of letters, and a lamp you switch on when a track is already in the mix.
+couple of letters, drag any column border to the width you want, and a lamp you switch
+on when a track is already in the mix. The
+shuffle button in the transport makes the next track a random one.
 
-**BPM and key, on-device.** Tracks without tempo or key tags get them from Apple's
-MusicUnderstanding framework in the background, two at a time, cached in the library
-database. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
+**BPM and key, on-device.** Right-click the selected tracks and pick "Проанализировать
+треки": Apple's MusicUnderstanding framework works them out in the background, two at a
+time, cached in the library database. Nothing is analysed behind your back unless you
+turn automatic analysis on in settings. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
 
 **Settings (⌘,).** One column of groups, no tabs: which playlist columns are visible,
 playlist font size (8-16 pt, the row stays as tight as the glyphs), automatic BPM/key

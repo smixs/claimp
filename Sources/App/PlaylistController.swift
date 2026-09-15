@@ -17,6 +17,8 @@ final class PlaylistController: NSObject {
     var onUpdate: (() -> Void)?
     /// Состав или порядок изменились: дроп, удаление, внутренний move. Поиск и лампочка сюда не входят.
     var onStructureChange: (() -> Void)?
+    /// «Проанализировать треки» из контекстного меню: считать BPM и тональность по требованию.
+    var onAnalyzeSelected: (([URL]) -> Void)?
 
     private var dataSource: PlaylistDataSource?
     /// Треки, по которым сейчас считается BPM/тональность: в пустых ячейках стоит плейсхолдер,
@@ -24,9 +26,19 @@ final class PlaylistController: NSObject {
     private var analysing: Set<URL> = []
     /// Плейсхолдер занятой ячейки.
     private static let analysisPlaceholder = "·"
+    /// Имя автосохранения колонок: ручные ширины владельца переживают перезапуск.
+    private static let columnsAutosaveName = "ClaimpPlaylistColumns"
+    /// Кегль, под который посчитаны текущие ширины: при смене кегля ширины масштабируются
+    /// коэффициентом, а не переписываются токенами (иначе ручная ширина стиралась бы).
+    private var widthsFontSize = SettingsStore.shared.value.playlistFontSize
 
     var statusText: String {
         PlaylistSummary.text(for: model.displayed)
+    }
+
+    /// Треки под контекстным меню и клавишами: ровно то, что выделено в таблице.
+    var selectedURLs: [URL] {
+        tableView.selectedRowIndexes.compactMap { rowURL($0) }
     }
 
     var selectedTrack: Track? {
@@ -130,9 +142,17 @@ final class PlaylistController: NSObject {
             column.applyWidth(to: tableColumn)
             tableView.addTableColumn(tableColumn)
         }
+        // Автосохранение включается после добавления колонок: иначе восстанавливать нечему.
+        tableView.autosaveName = Self.columnsAutosaveName
+        tableView.autosaveTableColumns = true
 
         tableView.target = self
         tableView.doubleAction = #selector(doubleClicked)
+
+        // Контекстное меню строки: состав пунктов собирается на каждый показ по выделению.
+        let menu = NSMenu()
+        menu.delegate = self
+        tableView.menu = menu
 
         tableView.onDeleteKey = { [weak self] in self?.deleteSelected() }
         tableView.onSpaceKey = { [weak self] in self?.onTogglePlay?() }
@@ -178,12 +198,17 @@ final class PlaylistController: NSObject {
         let visible = Set(PlaylistColumns.visible(
             all: PlaylistColumn.allCases.map(\.rawValue), hidden: settings.hiddenColumns))
         tableView.rowHeight = Theme.size.row
+        let previousSize = widthsFontSize
+        widthsFontSize = settings.playlistFontSize
         for tableColumn in tableView.tableColumns {
             let key = tableColumn.identifier.rawValue
             tableColumn.isHidden = !visible.contains(key)
             (tableColumn.headerCell as? FlatHeaderCell)?.font = Theme.font.columnHeader
-            // Ширины пересчитываются от кегля и формата тональности («8A · Am» шире «8A»).
-            PlaylistColumn(rawValue: key)?.applyWidth(to: tableColumn, keyFormat: settings.keyFormat)
+            // Границы пересчитываются от кегля, а ширина - от своей же прежней: колонку, которую
+            // владелец потянул рукой, смена кегля масштабирует, но не сбрасывает токеном.
+            PlaylistColumn(rawValue: key)?.applyLimits(to: tableColumn)
+            tableColumn.width = CGFloat(PlaylistFont.rescaled(
+                width: Double(tableColumn.width), fromRow: previousSize, toRow: settings.playlistFontSize))
         }
         // Ширины изменились: таблица раздаёт свою ширину заново, текстовые колонки ужимаются
         // до минимумов, прежде чем крайняя уедет за край окна.
@@ -365,6 +390,35 @@ final class PlaylistController: NSObject {
         onPlayTrack?(track)
     }
 
+    // MARK: - Контекстное меню (правый клик)
+
+    /// Пункты собираются на каждый показ: заголовок зависит от числа выделенных строк,
+    /// а на пустом выделении меню не показывается вовсе.
+    @objc func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        let analyze = NSMenuItem(
+            title: urls.count == 1 ? "Проанализировать трек" : "Проанализировать треки",
+            action: #selector(analyzeSelected), keyEquivalent: "")
+        analyze.target = self
+        menu.addItem(analyze)
+        let delete = NSMenuItem(
+            title: "Удалить из плейлиста", action: #selector(deleteSelectedFromMenu), keyEquivalent: "")
+        delete.target = self
+        menu.addItem(delete)
+    }
+
+    @objc private func analyzeSelected() {
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        onAnalyzeSelected?(urls)
+    }
+
+    @objc private func deleteSelectedFromMenu() {
+        deleteSelected()
+    }
+
     // MARK: - NSTableViewDelegate (в теле класса: optional-методы из extension AppKit не видит)
 
     @objc func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -408,6 +462,10 @@ final class PlaylistController: NSObject {
 // MARK: - NSTableViewDelegate
 
 extension PlaylistController: NSTableViewDelegate {}
+
+// MARK: - NSMenuDelegate
+
+extension PlaylistController: NSMenuDelegate {}
 
 extension Array {
     subscript(safe index: Int) -> Element? {

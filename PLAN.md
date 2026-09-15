@@ -240,5 +240,6 @@
 - [x] T16 - релиз 0.1.0/0.1.1: Developer ID MAJENTO, нотаризация, DMG, GitHub Releases
 - [x] T17 - сортировка по заголовкам (@objc), колонки kbps/BPM/Key, плотный плейлист (влито c2c02c6)
 - [x] T18 - анализ BPM/тональности через MusicUnderstanding (macOS 27), кэш в SQLite v2, колонки заполняются (влито 9ba23fd)
-- [ ] T19 - окно настроек ⌘, (колонки, шрифт, анализ, палитра) · Opus
-- [ ] Релиз 0.2.0: make release (Majento), export-public, тег v0.2.0, GitHub Release с DMG/zip
+- [x] T19 - окно настроек ⌘, (колонки, шрифт, анализ, палитра) · Opus (влито)
+- [x] Релиз 0.2.0: https://github.com/smixs/claimp/releases/tag/v0.2.0 (20:40 15.09, Majento, нотаризован)
+- [x] T20 - Random, свободные ширины колонок, анализ по правому клику (влито, 16.09)

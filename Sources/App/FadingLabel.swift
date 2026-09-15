@@ -35,14 +35,12 @@ final class FadingLabel: NSView {
         didSet { applyFadeColor() }
     }
 
-    /// Гасим только текст, идущий слева направо: в правых колонках (номер, год, длительность)
-    /// ширина фиксирована и переполнения не бывает.
+    /// Гаснет край, у которого текст обрезается, - правый при любом выравнивании: переполненная
+    /// строка рисуется от левого края и режется справа. С 2026-09-16 ширину числовых колонок
+    /// тоже тянут рукой, поэтому гасить их край нужно так же, как у Названия.
     var alignment: NSTextAlignment {
         get { label.alignment }
-        set {
-            label.alignment = newValue
-            fade.isHidden = newValue != .left
-        }
+        set { label.alignment = newValue }
     }
 
     override init(frame frameRect: NSRect) {

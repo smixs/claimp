@@ -20,6 +20,7 @@ func settingsRoundTripThroughDefaults() {
         hiddenColumns: ["year", "bitrate"],
         playlistFontSize: 14,
         autoAnalyze: false,
+        shuffle: true,
         tempoRange: .narrow,
         analysisMaxMinutes: 20,
         keyFormat: .both,
@@ -47,6 +48,25 @@ func settingsNormalizeGarbageFromDefaults() {
     #expect(settings.waveUnplayedBrightness == WaveBrightness.range.upperBound)
 }
 
+@Test("Дефолт: автоанализ выключен - пустые BPM и тональность остаются пустыми до правого клика")
+func autoAnalyzeDefaultsOff() {
+    #expect(AppSettings.default.autoAnalyze == false)
+    // Пустое хранилище читается тем же дефолтом: после обновления ничего само не считается.
+    #expect(AppSettings(reading: makeDefaults()).autoAnalyze == false)
+}
+
+@Test("Дефолт Random выключен, включённый переживает перезапуск")
+func shuffleDefaultsOffAndSurvivesRestart() {
+    #expect(AppSettings.default.shuffle == false)
+
+    let defaults = makeDefaults()
+    var settings = AppSettings.default
+    settings.shuffle = true
+    settings.write(to: defaults)
+
+    #expect(AppSettings(reading: defaults).shuffle == true)
+}
+
 @Test("Дефолт: кегль на 20 % больше прежних 9 pt, строка остаётся 13 pt")
 func defaultFontIsTwentyPercentLarger() {
     #expect(AppSettings.default.playlistFontSize == 11)
@@ -54,6 +74,20 @@ func defaultFontIsTwentyPercentLarger() {
     #expect(PlaylistFont.headerSize(forRow: 9) == 8)
     #expect(PlaylistFont.scale(forRow: 11) == 1)
     #expect(PlaylistFont.scale(forRow: 16) > 1)
+}
+
+@Test("Смена кегля масштабирует ручную ширину колонки, а не переписывает её токеном")
+func columnWidthFollowsFontScale() {
+    // Владелец сузил колонку до 30 pt при кегле 11; на 16 pt она должна вырасти в те же 16/11 раз.
+    #expect(PlaylistFont.rescaled(width: 30, fromRow: 11, toRow: 16) == 44)
+    #expect(PlaylistFont.rescaled(width: 30, fromRow: 11, toRow: 11) == 30)
+}
+
+@Test("Негодный кегль в пересчёте ширины прижимается к границе, а не даёт ноль или бесконечность")
+func columnWidthRescaleClampsGarbageSizes() {
+    // 99 pt и 2 pt в хранилище - это 16 и 8: ширина делится ровно пополам, а не уходит в мусор.
+    #expect(PlaylistFont.rescaled(width: 40, fromRow: 99, toRow: 2) == 20)
+    #expect(PlaylistFont.rescaled(width: 40, fromRow: .nan, toRow: .nan) == 40)
 }
 
 @Test("Спрятанные колонки уходят из списка, порядок остальных сохраняется")

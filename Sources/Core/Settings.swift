@@ -13,8 +13,13 @@ public struct AppSettings: Equatable, Sendable {
     public var hiddenColumns: Set<String>
     /// Кегль строки плейлиста, pt.
     public var playlistFontSize: Double
-    /// Считать BPM и тональность у треков без тега.
+    /// Считать BPM и тональность у треков без тега сразу после скана. По умолчанию выключено
+    /// (решение владельца 2026-09-16): анализ запускает владелец правым кликом по выделенным
+    /// трекам. Переключатель в окне настроек остаётся и работает как раньше.
     public var autoAnalyze: Bool
+    /// Случайный следующий трек (кнопка Random в транспорте). В окне настроек не показывается:
+    /// режимом управляет кнопка, а хранение нужно только чтобы он пережил перезапуск.
+    public var shuffle: Bool
     public var tempoRange: TempoRangePreset
     /// Треки длиннее этого (минуты) не анализируются: миксы считаются часами и не нужны.
     public var analysisMaxMinutes: Int
@@ -27,6 +32,7 @@ public struct AppSettings: Equatable, Sendable {
         hiddenColumns: Set<String>,
         playlistFontSize: Double,
         autoAnalyze: Bool,
+        shuffle: Bool,
         tempoRange: TempoRangePreset,
         analysisMaxMinutes: Int,
         keyFormat: KeyFormat,
@@ -36,6 +42,7 @@ public struct AppSettings: Equatable, Sendable {
         self.hiddenColumns = hiddenColumns
         self.playlistFontSize = PlaylistFont.clamp(playlistFontSize)
         self.autoAnalyze = autoAnalyze
+        self.shuffle = shuffle
         self.tempoRange = tempoRange
         self.analysisMaxMinutes = Self.clampMinutes(analysisMaxMinutes)
         self.keyFormat = keyFormat
@@ -43,13 +50,15 @@ public struct AppSettings: Equatable, Sendable {
         self.waveUnplayedBrightness = Self.clampBrightness(waveUnplayedBrightness)
     }
 
-    /// Дефолты владельца (DECISIONS 2026-09-15 19:00 и 19:49): все колонки видны, кегль на 20 %
-    /// больше прежних 9 pt, автоанализ включён, темп 90-180, миксы длиннее 15 минут мимо,
-    /// тональность в Camelot, волна спектральная.
+    /// Дефолты владельца (DECISIONS 2026-09-15 19:00 и 19:49, 2026-09-16): все колонки видны,
+    /// кегль на 20 % больше прежних 9 pt, автоанализ ВЫКЛЮЧЕН (считаем по правому клику,
+    /// пустые поля остаются пустыми), темп 90-180, миксы длиннее 15 минут мимо,
+    /// тональность в Camelot, волна спектральная, Random выключен.
     public static let `default` = AppSettings(
         hiddenColumns: [],
         playlistFontSize: PlaylistFont.defaultSize,
-        autoAnalyze: true,
+        autoAnalyze: false,
+        shuffle: false,
         tempoRange: .wide,
         analysisMaxMinutes: 15,
         keyFormat: .camelot,
@@ -159,6 +168,13 @@ public enum PlaylistFont {
         clamp(size) / defaultSize
     }
 
+    /// Ширина колонки при смене кегля (решение владельца 2026-09-16: ширину колонок владелец
+    /// ставит рукой): текущая ширина умножается на отношение кеглей, а не переписывается токеном -
+    /// иначе смена кегля стирала бы ручную ширину. Кегль вне диапазона прижимается к границе.
+    public static func rescaled(width: Double, fromRow old: Double, toRow new: Double) -> Double {
+        (width * clamp(new) / clamp(old)).rounded()
+    }
+
     /// Кегль заголовка колонки: пропорционально строке, с округлением до половины пункта.
     public static func headerSize(forRow size: Double) -> Double {
         (clamp(size) * headerRatio * 2).rounded() / 2
@@ -196,6 +212,7 @@ public enum SettingsKey {
     public static let hiddenColumns = prefix + "playlist.hiddenColumns"
     public static let playlistFontSize = prefix + "playlist.fontSize"
     public static let autoAnalyze = prefix + "analysis.auto"
+    public static let shuffle = prefix + "playback.shuffle"
     public static let tempoRange = prefix + "analysis.tempoRange"
     public static let analysisMaxMinutes = prefix + "analysis.maxMinutes"
     public static let keyFormat = prefix + "analysis.keyFormat"
@@ -204,7 +221,7 @@ public enum SettingsKey {
 
     /// Все ключи настроек: по ним же идёт сброс.
     public static let all = [
-        hiddenColumns, playlistFontSize, autoAnalyze, tempoRange,
+        hiddenColumns, playlistFontSize, autoAnalyze, shuffle, tempoRange,
         analysisMaxMinutes, keyFormat, wavePalette, waveUnplayedBrightness,
     ]
 }
@@ -220,6 +237,7 @@ extension AppSettings {
             playlistFontSize: defaults.object(forKey: SettingsKey.playlistFontSize) as? Double
                 ?? fallback.playlistFontSize,
             autoAnalyze: defaults.object(forKey: SettingsKey.autoAnalyze) as? Bool ?? fallback.autoAnalyze,
+            shuffle: defaults.object(forKey: SettingsKey.shuffle) as? Bool ?? fallback.shuffle,
             tempoRange: Self.read(defaults, SettingsKey.tempoRange) ?? fallback.tempoRange,
             analysisMaxMinutes: defaults.object(forKey: SettingsKey.analysisMaxMinutes) as? Int
                 ?? fallback.analysisMaxMinutes,
@@ -234,6 +252,7 @@ extension AppSettings {
         defaults.set(Array(hiddenColumns).sorted(), forKey: SettingsKey.hiddenColumns)
         defaults.set(playlistFontSize, forKey: SettingsKey.playlistFontSize)
         defaults.set(autoAnalyze, forKey: SettingsKey.autoAnalyze)
+        defaults.set(shuffle, forKey: SettingsKey.shuffle)
         defaults.set(tempoRange.rawValue, forKey: SettingsKey.tempoRange)
         defaults.set(analysisMaxMinutes, forKey: SettingsKey.analysisMaxMinutes)
         defaults.set(keyFormat.rawValue, forKey: SettingsKey.keyFormat)
@@ -276,6 +295,7 @@ public final class SettingsStore {
             hiddenColumns: draft.hiddenColumns,
             playlistFontSize: draft.playlistFontSize,
             autoAnalyze: draft.autoAnalyze,
+            shuffle: draft.shuffle,
             tempoRange: draft.tempoRange,
             analysisMaxMinutes: draft.analysisMaxMinutes,
             keyFormat: draft.keyFormat,

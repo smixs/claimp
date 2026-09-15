@@ -27,35 +27,42 @@ enum PlaylistColumn: String, CaseIterable {
         TrackSortField.forColumnKey(rawValue)
     }
 
-    /// Фиксированные ширины из SPEC §4.1; текстовые колонки растут.
+    /// Стартовые ширины из SPEC §4.1 и общие границы ручного изменения.
     /// Ширина `Key` зависит от формата тональности из настроек: «8A · Am» длиннее «8A».
     @MainActor func applyWidth(to column: NSTableColumn, keyFormat: KeyFormat = .camelot) {
+        column.width = startWidth(keyFormat: keyFormat)
+        applyLimits(to: column)
+    }
+
+    /// Границы и способ изменения ширины. Решение владельца 2026-09-16: тянется любая колонка,
+    /// в том числе числовая; содержимое, которое не влезло, обрезается, а строка не расширяется.
+    /// Название и Исполнитель, кроме того, делят между собой лишнюю ширину окна.
+    @MainActor func applyLimits(to column: NSTableColumn) {
+        column.minWidth = Theme.column.scaled(self == .played ? Theme.column.playedMin : Theme.column.minAny)
+        column.maxWidth = Theme.column.scaled(Theme.column.maxAny)
+        column.resizingMask = stretches
+            ? [.userResizingMask, .autoresizingMask]
+            : [.userResizingMask]
+    }
+
+    /// Ширина при первом показе: дальше её помнит autosave таблицы или рука владельца.
+    @MainActor func startWidth(keyFormat: KeyFormat) -> CGFloat {
         switch self {
-        case .played:
-            fix(column, Theme.column.scaled(Theme.column.played))
-        case .number:
-            fix(column, Theme.column.scaled(Theme.column.number))
-        case .title:
-            column.width = Theme.column.titleIdeal
-            column.minWidth = Theme.column.titleMin
-            column.maxWidth = Theme.column.titleMax
-            column.resizingMask = [.userResizingMask, .autoresizingMask]
-        case .artist:
-            column.width = Theme.column.artistIdeal
-            column.minWidth = Theme.column.artistMin
-            column.maxWidth = Theme.column.artistMax
-            column.resizingMask = [.userResizingMask, .autoresizingMask]
-        case .year:
-            fix(column, Theme.column.scaled(Theme.column.year))
-        case .duration:
-            fix(column, Theme.column.scaled(Theme.column.duration))
-        case .bitrate:
-            fix(column, Theme.column.scaled(Theme.column.bitrate))
-        case .bpm:
-            fix(column, Theme.column.scaled(Theme.column.bpm))
-        case .key:
-            fix(column, Theme.column.scaled(keyFormat == .both ? Theme.column.keyBoth : Theme.column.key))
+        case .played: return Theme.column.scaled(Theme.column.played)
+        case .number: return Theme.column.scaled(Theme.column.number)
+        case .title: return Theme.column.titleIdeal
+        case .artist: return Theme.column.artistIdeal
+        case .year: return Theme.column.scaled(Theme.column.year)
+        case .duration: return Theme.column.scaled(Theme.column.duration)
+        case .bitrate: return Theme.column.scaled(Theme.column.bitrate)
+        case .bpm: return Theme.column.scaled(Theme.column.bpm)
+        case .key: return Theme.column.scaled(keyFormat == .both ? Theme.column.keyBoth : Theme.column.key)
         }
+    }
+
+    /// Колонка забирает лишнюю ширину окна: текст растёт, цифры остаются как поставили.
+    var stretches: Bool {
+        self == .title || self == .artist
     }
 
     var alignsRight: Bool {
@@ -63,13 +70,6 @@ enum PlaylistColumn: String, CaseIterable {
         case .number, .year, .duration, .bitrate, .bpm: return true
         case .played, .title, .artist, .key: return false
         }
-    }
-
-    @MainActor private func fix(_ column: NSTableColumn, _ width: CGFloat) {
-        column.width = width
-        column.minWidth = width
-        column.maxWidth = width
-        column.resizingMask = []
     }
 }
 
@@ -287,6 +287,16 @@ final class PlaylistTableView: NSTableView {
     var onDeleteKey: (() -> Void)?
     var onSpaceKey: (() -> Void)?
     var onEnterKey: (() -> Void)?
+
+    /// Правый клик по строке вне выделения переносит выделение на неё (стандартное поведение
+    /// AppKit): меню всегда работает с тем, что владелец видит выделенным.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        if row >= 0, !selectedRowIndexes.contains(row) {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        return super.menu(for: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {

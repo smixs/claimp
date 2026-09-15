@@ -1,4 +1,5 @@
 import Foundation
+import PropertyBased
 import Testing
 
 @testable import Core
@@ -59,4 +60,52 @@ func restoreDropsMissing() {
     let kept = PlaylistNavigator.restore(urls: [a, b, c], current: c, isExisting: existing.contains)
     #expect(kept.urls == [a, c])
     #expect(kept.current == c)
+}
+
+/// Сидированный генератор (SplitMix64): случайный выбор проверяется значением, а не «похоже на случай».
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+@Test("Random с сидированным генератором даёт воспроизводимый трек из списка")
+func randomIsDeterministicForSeed() {
+    let urls = [a, b, c]
+    var first = SeededGenerator(seed: 42)
+    var second = SeededGenerator(seed: 42)
+    let picked = PlaylistNavigator.random(excluding: a, in: urls, using: &first)
+    #expect(picked == PlaylistNavigator.random(excluding: a, in: urls, using: &second))
+    #expect(picked == b || picked == c)
+}
+
+@Test("Random: один трек даёт себя, пустой список - nil")
+func randomEdges() {
+    var generator = SeededGenerator(seed: 7)
+    #expect(PlaylistNavigator.random(excluding: a, in: [a], using: &generator) == a)
+    #expect(PlaylistNavigator.random(excluding: a, in: [], using: &generator) == nil)
+    #expect(PlaylistNavigator.random(excluding: nil, in: [a], using: &generator) == a)
+}
+
+@Test("PBT: при двух и более треках случайный следующий никогда не равен текущему")
+func randomNeverRepeatsCurrent() async {
+    await propertyCheck(input: Gen.int(in: 1...50), Gen.int(in: 0...49), Gen.uint64()) { count, rawIndex, seed in
+        let urls = (0..<count).map { URL(fileURLWithPath: "/pbt/\($0).mp3") }
+        let current = urls[rawIndex % count]
+        var generator = SeededGenerator(seed: seed)
+        let picked = PlaylistNavigator.random(excluding: current, in: urls, using: &generator)
+        #expect(picked != nil)
+        #expect(urls.contains(picked!))
+        if count > 1 {
+            #expect(picked != current)
+        } else {
+            #expect(picked == current)
+        }
+    }
 }

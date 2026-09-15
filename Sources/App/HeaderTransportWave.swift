@@ -172,7 +172,7 @@ final class TransportIconButton: NSButton {
     }
 }
 
-/// ТРАНСПОРТ 52: ⏮ ⏹ ▶/⏸ ⏭ по центру (кнопки 40, play 52).
+/// ТРАНСПОРТ 52: ⏮ ⏹ ▶/⏸ ⏭ 🔀 по центру (кнопки 40, play 52).
 /// Play и pause - одна кнопка по состоянию движка; громкость - отдельная колонка справа.
 final class TransportView: NSView {
     var onPrevious: (() -> Void)?
@@ -180,6 +180,8 @@ final class TransportView: NSView {
     var onPlay: (() -> Void)?
     var onPause: (() -> Void)?
     var onNext: (() -> Void)?
+    /// Random переключился: наверх уходит новое состояние режима.
+    var onShuffle: ((Bool) -> Void)?
 
     private let previousButton = TransportIconButton(
         symbol: "backward.end.fill", side: Theme.size.transportButton, pointSize: Theme.size.transportIcon
@@ -193,12 +195,16 @@ final class TransportView: NSView {
     private let nextButton = TransportIconButton(
         symbol: "forward.end.fill", side: Theme.size.transportButton, pointSize: Theme.size.transportIcon
     )
+    /// Random (решение владельца 16.09): режим случайного следующего трека, рядом с «следующий».
+    private let shuffleButton = TransportIconButton(
+        symbol: "shuffle", side: Theme.size.transportButton, pointSize: Theme.size.transportIcon
+    )
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         Theme.fill(self, color: Theme.background.base)
 
-        let center = NSStackView(views: [previousButton, stopButton, playButton, nextButton])
+        let center = NSStackView(views: [previousButton, stopButton, playButton, nextButton, shuffleButton])
         center.orientation = .horizontal
         center.spacing = Theme.size.transportGap
         center.alignment = .centerY
@@ -210,6 +216,7 @@ final class TransportView: NSView {
             (stopButton, #selector(stopPressed)),
             (playButton, #selector(playPausePressed)),
             (nextButton, #selector(nextPressed)),
+            (shuffleButton, #selector(shufflePressed)),
         ] as [(TransportIconButton, Selector)] {
             button.target = self
             button.action = action
@@ -236,10 +243,19 @@ final class TransportView: NSView {
         }
     }
 
+    /// Режим Random: включённая кнопка горит акцентом, как играющая кнопка play.
+    var isShuffling: Bool = false {
+        didSet { shuffleButton.isActive = isShuffling }
+    }
+
     @objc private func prevPressed() { onPrevious?() }
     @objc private func stopPressed() { onStop?() }
     @objc private func playPausePressed() {
         if isPlaying { onPause?() } else { onPlay?() }
     }
     @objc private func nextPressed() { onNext?() }
+    @objc private func shufflePressed() {
+        isShuffling.toggle()
+        onShuffle?(isShuffling)
+    }
 }

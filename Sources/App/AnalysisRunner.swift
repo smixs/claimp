@@ -60,21 +60,35 @@ final class AnalysisRunner {
             maxDuration: TimeInterval(settings.analysisMaxMinutes * 60))
     }
 
-    /// Ставит в очередь треки, у которых нет тега темпа или тональности. Порядок очереди -
-    /// порядок списка: слоты анализатора выдаются в порядке обращения.
+    /// Автостарт после скана: в очередь идут только треки без тега темпа или тональности,
+    /// и только при включённой настройке (по умолчанию она выключена - решение владельца 16.09,
+    /// считаем по правому клику).
     func start(tracks: [Track]) {
+        guard autoAnalyze else {
+            cancel()
+            return
+        }
+        analyze(urls: tracks.filter { $0.bpm == nil || $0.key == nil }.map(\.url), force: false)
+    }
+
+    /// Разбор конкретных треков. Порядок очереди - порядок списка: слоты анализатора выдаются
+    /// в порядке обращения. `force` - счёт по требованию владельца («Проанализировать треки»
+    /// в контекстном меню): кэш не читается, посчитанное перезаписывает его.
+    /// Новая очередь отменяет прежнюю: плейсхолдеры брошенных треков снимаются отменой.
+    func analyze(urls: [URL], force: Bool) {
+        let fresh = Set(urls)
+        let stopped = queued.filter { !fresh.contains($0) }
         cancel()
-        guard autoAnalyze else { return }
-        let queued = tracks.filter { $0.bpm == nil || $0.key == nil }.map(\.url)
-        guard !queued.isEmpty else { return }
-        self.queued = queued
-        onQueued?(queued)
+        for url in stopped { onEvent?(.cancelled(url)) }
+        guard !urls.isEmpty else { return }
+        queued = urls
+        onQueued?(urls)
         let analyzer = analyzer
         let store = store
         task = Task { [weak self] in
             await withTaskGroup(of: AnalysisEvent.self) { group in
-                for url in queued {
-                    group.addTask { await Self.analyze(url: url, analyzer: analyzer, store: store) }
+                for url in urls {
+                    group.addTask { await Self.analyze(url: url, force: force, analyzer: analyzer, store: store) }
                 }
                 for await event in group {
                     self?.onEvent?(event)
@@ -91,12 +105,13 @@ final class AnalysisRunner {
     }
 
     /// Один трек: сперва кэш по отпечатку файла, потом счёт. Работа идёт вне главного потока.
+    /// `force` - пересчёт по требованию владельца: кэш не читается, свежий результат его заменяет.
     private nonisolated static func analyze(
-        url: URL, analyzer: TrackAnalyzer, store: PlayedStoring?
+        url: URL, force: Bool, analyzer: TrackAnalyzer, store: PlayedStoring?
     ) async -> AnalysisEvent {
         do {
             let stamp = try FileStamp.of(url: url)
-            if let cached = try store?.analysis(for: url, stamp: stamp) {
+            if !force, let cached = try store?.analysis(for: url, stamp: stamp) {
                 return .ready(url, bpm: cached.bpm, key: cached.key)
             }
             switch try await analyzer.analyze(url: url) {

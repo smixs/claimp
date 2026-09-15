@@ -30,10 +30,15 @@ toolchain:
 build: toolchain
 	swift build
 
-# Тесты собираются серийно: параллельная сборка тулчейна CLT иногда компилирует тест-таргет
-# раньше плагина макросов swift-testing («TestingMacros ... not found»), -j 1 это снимает.
+# Плагин макросов swift-testing грузим в процесс компилятора: через отдельный сервер
+# плагинов тулчейн CLT теряет его («TestingMacros ... not found», 3 из 3 прогонов 16.09),
+# с -load-plugin-library 3 из 3 зелёные. Путь считается от DEVELOPER_DIR.
+TESTING_MACROS = $(DEVELOPER_DIR)/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib
+TEST_BUILD_FLAGS = -Xswiftc -load-plugin-library -Xswiftc $(TESTING_MACROS)
+
 test: toolchain
-	swift build --build-tests -j 1
+	test -f "$(TESTING_MACROS)" || { echo "ERROR: нет плагина макросов swift-testing: $(TESTING_MACROS)"; exit 1; }
+	swift build --build-tests $(TEST_BUILD_FLAGS)
 	swift test --skip-build
 
 app:

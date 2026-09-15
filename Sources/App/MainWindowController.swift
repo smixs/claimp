@@ -318,6 +318,10 @@ final class MainWindowController {
         playlist.onStructureChange = { [weak self] in
             self?.persist()
         }
+        // Правый клик «Проанализировать треки»: считаем заново, кэш перезаписывается.
+        playlist.onAnalyzeSelected = { [weak self] urls in
+            self?.analysisRunner.analyze(urls: urls, force: true)
+        }
     }
 
     /// Разбор идёт в фоне: готовые значения садятся в ячейки по мере готовности, ошибки
@@ -362,6 +366,7 @@ final class MainWindowController {
     private func applySettings() {
         let settings = SettingsStore.shared.value
         playlist.applySettings()
+        transport.isShuffling = settings.shuffle
         wave.style = Self.waveStyle(for: settings)
         analysisRunner.apply(settings: settings)
     }
@@ -390,6 +395,7 @@ final class MainWindowController {
         transport.onStop = { [weak self] in self?.stop() }
         transport.onPrevious = { [weak self] in self?.step(by: -1) }
         transport.onNext = { [weak self] in self?.step(by: 1) }
+        transport.onShuffle = { on in SettingsStore.shared.update { $0.shuffle = on } }
         header.volume.onChange = { [weak self] position in
             // Ход ручки линейный, громкость движка - логарифмическая (audio taper).
             self?.engine.volume = VolumeCurve.gain(forPosition: position)
@@ -482,7 +488,7 @@ final class MainWindowController {
     /// Лампочка автоматом не ставится.
     private func trackEnded() {
         let visible = playlist.model.displayed.map(\.url)
-        guard let next = PlaylistNavigator.next(after: engine.currentURL, in: visible),
+        guard let next = nextURL(in: visible),
               let track = playlist.model.displayed.first(where: { $0.url == next })
         else {
             afterTransportChange()
@@ -497,7 +503,7 @@ final class MainWindowController {
         let urls = visible.map(\.url)
         let target: URL?
         if direction > 0 {
-            target = PlaylistNavigator.next(after: engine.currentURL, in: urls)
+            target = nextURL(in: urls)
         } else {
             target = PlaylistNavigator.previous(before: engine.currentURL, in: urls)
         }
@@ -507,6 +513,16 @@ final class MainWindowController {
             return
         }
         play(track: track)
+    }
+
+    /// Следующий трек одной точкой для кнопки, медиаклавиши и автоперехода в конце трека:
+    /// при включённом Random - случайный из видимых строк, иначе следующий по порядку.
+    private func nextURL(in urls: [URL]) -> URL? {
+        guard SettingsStore.shared.value.shuffle else {
+            return PlaylistNavigator.next(after: engine.currentURL, in: urls)
+        }
+        var generator = SystemRandomNumberGenerator()
+        return PlaylistNavigator.random(excluding: engine.currentURL, in: urls, using: &generator)
     }
 
     private func afterTransportChange() {
