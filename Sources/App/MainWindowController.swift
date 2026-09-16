@@ -43,6 +43,11 @@ final class MainWindowController {
     /// Сколько треков не разобралось в этой сессии: висит счётчиком в статусной строке,
     /// каждая причина отдельно уходит в stderr. Остальные треки при этом продолжают считаться.
     private var analysisErrors = 0
+    /// Очередь разбора: сколько поставлено и сколько закрыто (готово, пропущено, ошибка,
+    /// отмена). Пока идёт - статусная строка показывает «analysis: 12 of 64», иначе владелец
+    /// не видит, что очередь работает (16.09: 64 трека по ~9 с, «анализатор не работает»).
+    private var analysisQueued = 0
+    private var analysisDone = 0
 
     /// Подписка на изменения настроек: снимается вместе с контроллером.
     private var settingsObserver: NSObjectProtocol?
@@ -491,10 +496,16 @@ final class MainWindowController {
     /// считаются, пропуски длинных миксов проговариваются в stderr.
     private func wireAnalysis() {
         analysisRunner.onQueued = { [weak self] urls in
-            self?.playlist.markAnalysing(urls: urls)
+            guard let self else { return }
+            self.playlist.markAnalysing(urls: urls)
+            self.analysisQueued = urls.count
+            self.analysisDone = 0
+            self.refreshChrome()
         }
         analysisRunner.onEvent = { [weak self] event in
             guard let self else { return }
+            self.analysisDone += 1
+            defer { self.refreshChrome() }
             switch event {
             case .ready(let url, let bpm, let key, let inTag):
                 self.playlist.applyAnalysis(url: url, bpm: bpm, key: key, inTag: inTag)
@@ -509,7 +520,6 @@ final class MainWindowController {
                 self.analysisErrors += 1
                 FileHandle.standardError.write(
                     Data("Claimp: \(Strings.Error.analysisFailed(url.lastPathComponent, reason: reason))\n".utf8))
-                self.refreshChrome()
             case .cancelled(let url):
                 self.playlist.stopAnalysing(url: url)
             }
@@ -849,6 +859,10 @@ final class MainWindowController {
         if let text = errorText ?? storeFailure {
             statusLabel.stringValue = text
             statusLabel.textColor = Theme.text.danger
+        } else if analysisDone < analysisQueued {
+            statusLabel.stringValue = Strings.analysisProgress(
+                done: analysisDone, total: analysisQueued, errors: analysisErrors, summary: playlist.statusText)
+            statusLabel.textColor = analysisErrors > 0 ? Theme.text.danger : Theme.text.secondary
         } else if analysisErrors > 0 {
             // Ошибки разбора не прячем: счётчик виден, подробности - в stderr.
             statusLabel.stringValue = Strings.analysisErrors(analysisErrors, summary: playlist.statusText)

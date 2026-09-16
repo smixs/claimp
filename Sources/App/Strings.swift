@@ -35,6 +35,13 @@ enum Strings {
         return "\(summary) · analysis: \(count) \(word)"
     }
 
+    /// Очередь разбора идёт: "98 tracks · 9:39:39 · analysis: 12 of 64" (с ошибками - "…, 1 error").
+    static func analysisProgress(done: Int, total: Int, errors: Int, summary: String) -> String {
+        let base = "\(summary) · analysis: \(done) of \(total)"
+        guard errors > 0 else { return base }
+        return "\(base), \(errors) \(errors == 1 ? "error" : "errors")"
+    }
+
     // MARK: - Меню
 
     static let menuCheckForUpdates = "Check for Updates…"
