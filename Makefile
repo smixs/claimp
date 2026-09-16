@@ -1,4 +1,4 @@
-.PHONY: build test app run clean dist notarize verify release toolchain sparkle-keys appcast
+.PHONY: build test app run clean dist notarize verify release toolchain brew-cask sparkle-keys appcast
 
 # Тулчейн один на всех: анализ BPM/тональности собирается только SDK macOS 27 из
 # Command Line Tools (в SDK Xcode 26.6 нет MusicUnderstanding.framework). Значение
@@ -132,3 +132,12 @@ release:
 	$(MAKE) notarize
 	$(MAKE) appcast
 	$(MAKE) verify
+
+# Homebrew tap smixs/homebrew-claimp: после публикации релиза на GitHub обновить версию и
+# sha256 каска и запушить. Клон tap лежит в .scratch/public-export/homebrew-claimp.
+TAP_DIR = .scratch/public-export/homebrew-claimp
+brew-cask:
+	test -f "build/Claimp-$(VERSION).dmg"
+	sed -i '' 's/^  version ".*"/  version "$(VERSION)"/' "$(TAP_DIR)/Casks/claimp.rb"
+	sed -i '' "s/^  sha256 \".*\"/  sha256 \"$$(shasum -a 256 build/Claimp-$(VERSION).dmg | cut -d' ' -f1)\"/" "$(TAP_DIR)/Casks/claimp.rb"
+	cd "$(TAP_DIR)" && git add -A && git -c user.name=smixs -c user.email=smixs@users.noreply.github.com commit -m "Claimp $(VERSION)" && git push

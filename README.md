@@ -22,6 +22,12 @@ Download the latest release from **[claimp.app](https://claimp.app/download)**, 
 and drag **Claimp** into **Applications**. Signed with a Developer ID certificate and
 notarized by Apple; updates arrive inside the app. Requires macOS 27 or newer.
 
+Homebrew:
+
+```bash
+brew install smixs/claimp/claimp
+```
+
 Releases and zips: [github.com/smixs/claimp/releases](https://github.com/smixs/claimp/releases).
 
 ## What it does
