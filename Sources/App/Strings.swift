@@ -37,6 +37,7 @@ enum Strings {
 
     // MARK: - Меню
 
+    static let menuCheckForUpdates = "Check for Updates…"
     static let menuSettings = "Settings…"
     static let menuOpen = "Open…"
     static let menuFile = "File"

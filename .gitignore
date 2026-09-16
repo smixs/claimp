@@ -5,3 +5,4 @@ build/
 *.xcodeproj
 .swiftpm/
 .DS_Store
+research/raw/

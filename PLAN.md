@@ -244,3 +244,5 @@
 - [x] Релиз 0.2.0: https://github.com/smixs/claimp/releases/tag/v0.2.0 (20:40 15.09, Majento, нотаризован)
 - [x] T20 - Random, свободные ширины колонок, анализ по правому клику (влито, 16.09)
 - [x] T21 - перестановка колонок, высота волны в настройках, английский UI, колёсико громкости (влито, 16.09)
+- [x] Сайт claimp.app: Cloudflare Pages `claimp-site`, домены claimp.app + www; деплой `npx -y wrangler pages deploy site --project-name claimp-site --branch main --commit-dirty=true` из корня репо (16.09)
+- [x] T22 запись тегов и подсветка играющего; T23 колонки; T24 Sparkle (влиты 16.09)

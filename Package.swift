@@ -19,6 +19,13 @@ let package = Package(
         .package(url: "https://github.com/sbooth/SFBAudioEngine", from: "0.14.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.11.0"),
         .package(url: "https://github.com/x-sheep/swift-property-based", from: "2.0.0"),
+        // Запись BPM и тональности в теги файла (T22). Версия та же, что уже стоит в
+        // Package.resolved: TagLib приходит в граф вместе с SFBAudioEngine, качать нечего.
+        .package(url: "https://github.com/sbooth/CXXTagLib", from: "2.3.2"),
+        // Автообновление. Sparkle приезжает бинарным артефактом: сам Sparkle.framework
+        // внутри xcframework плюс утилиты generate_keys/generate_appcast, которыми
+        // пользуются цели Makefile.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
     ],
     targets: [
         .target(
@@ -35,6 +42,18 @@ let package = Package(
                 .product(name: "SFBAudioEngine", package: "SFBAudioEngine"),
             ],
             swiftSettings: strict),
+        // ObjC++ поверх TagLib: сам C++ наружу не торчит, Swift видит один класс с NSError.
+        // Разделение на C-таргет и Swift-обёртку - приём SFBAudioEngine (CSFBAudioEngine +
+        // SFBAudioEngine): смешанный таргет SwiftPM не собирает.
+        .target(
+            name: "CTagWriter",
+            dependencies: [
+                .product(name: "taglib", package: "CXXTagLib"),
+            ]),
+        .target(
+            name: "TagWriter",
+            dependencies: ["CTagWriter"],
+            swiftSettings: strict),
         .target(
             name: "Analysis",
             dependencies: ["Core"],
@@ -45,7 +64,10 @@ let package = Package(
             swiftSettings: strict),
         .executableTarget(
             name: "App",
-            dependencies: ["Analysis", "Core", "Playback", "Waveform"],
+            dependencies: [
+                "Analysis", "Core", "Playback", "TagWriter", "Waveform",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             resources: [.copy("Resources/claimp-logo.svg")],
             swiftSettings: strict),
         .testTarget(
@@ -73,11 +95,21 @@ let package = Package(
             ],
             swiftSettings: strict),
         .testTarget(
+            name: "TagWriterTests",
+            dependencies: [
+                // Читателем в тестах записи выступает штатный сканер плейлиста.
+                "Core",
+                "TagWriter",
+            ],
+            swiftSettings: strict),
+        .testTarget(
             name: "WaveformTests",
             dependencies: [
                 "Waveform",
                 .product(name: "PropertyBased", package: "swift-property-based"),
             ],
             swiftSettings: strict),
-    ]
+    ],
+    // TagLib требует C++17 (заголовки из CXXTagLib собираются вместе с нашим ObjC++).
+    cxxLanguageStandard: .cxx17
 )

@@ -185,6 +185,17 @@ final class MainWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// Отладочный прогон колонок (`CLAIMP_COLUMN_PROBE=1`): замеры в stderr. Ширину окна
+    /// задаёт `CLAIMP_COLUMN_PROBE_WIDTH` - так проверяется раздача места без мыши.
+    func runColumnProbe(width: CGFloat?) {
+        if let width {
+            var frame = window.frame
+            frame.size.width = width
+            window.setFrame(frame, display: true)
+        }
+        playlist.runColumnProbe()
+    }
+
     // MARK: - Магазин лампочек
 
     /// Боевая база открывается один раз; памятью её не подменяем: не открылась - лампочки и порядок
@@ -253,6 +264,13 @@ final class MainWindowController {
         playlist.replaceAll(flagged)
         persist()
         analysisRunner.start(tracks: flagged)
+        if Self.shouldPlayFirstTrack() { playSelectedOrFirst() }
+    }
+
+    /// Отладочный ключ, как `--open-settings`: сразу после загрузки папки играет первый трек
+    /// (`CLAIMP_PLAY_FIRST=1`). Нужен для снимков подсветки играющей строки без клавиатуры и мыши.
+    private static func shouldPlayFirstTrack() -> Bool {
+        ProcessInfo.processInfo.environment["CLAIMP_PLAY_FIRST"] == "1"
     }
 
     // MARK: - Восстановление при запуске
@@ -342,14 +360,16 @@ final class MainWindowController {
         analysisRunner.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
-            case .ready(let url, let bpm, let key):
-                self.playlist.applyAnalysis(url: url, bpm: bpm, key: key)
+            case .ready(let url, let bpm, let key, let inTag):
+                self.playlist.applyAnalysis(url: url, bpm: bpm, key: key, inTag: inTag)
             case .skipped(let url, let reason):
                 self.playlist.stopAnalysing(url: url)
                 FileHandle.standardError.write(
                     Data("Claimp: \(Strings.Error.analysisSkipped(url.lastPathComponent, reason: reason))\n".utf8))
-            case .failed(let url, let reason):
-                self.playlist.stopAnalysing(url: url)
+            case .failed(let url, let reason, let bpm, let key):
+                // Значения показываем, даже если тег или кэш не записались: счётчик ошибок
+                // и stderr скажут, что именно не получилось.
+                self.playlist.applyAnalysis(url: url, bpm: bpm, key: key, inTag: false)
                 self.analysisErrors += 1
                 FileHandle.standardError.write(
                     Data("Claimp: \(Strings.Error.analysisFailed(url.lastPathComponent, reason: reason))\n".utf8))
@@ -537,6 +557,9 @@ final class MainWindowController {
 
     private func afterTransportChange() {
         transport.isPlaying = engine.state == .playing
+        // Звучащий трек ярко подсвечен в плейлисте, пока движок его держит (играет или на паузе);
+        // остановка гасит подсветку. Тот же критерий, что у шапки и волны.
+        playlist.setPlaying(url: engine.state == .idle ? nil : engine.currentURL)
         refreshNowPlaying()
         showCurrentTrack()
     }

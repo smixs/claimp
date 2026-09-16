@@ -21,16 +21,25 @@ final class PlaylistController: NSObject {
     var onAnalyzeSelected: (([URL]) -> Void)?
 
     private var dataSource: PlaylistDataSource?
+    /// Звучащий трек: его строка заливается акцентом ярче обычного выделения (решение владельца
+    /// 16.09 ~07:00), чтобы его было видно при включённом Random. nil - воспроизведения нет.
+    private var playingURL: URL?
     /// Треки, по которым сейчас считается BPM/тональность: в пустых ячейках стоит плейсхолдер,
     /// как тонкая осевая линия на волне, пока она не посчитана.
     private var analysing: Set<URL> = []
     /// Плейсхолдер занятой ячейки.
     private static let analysisPlaceholder = "·"
     /// Имя автосохранения колонок: ручные ширины владельца переживают перезапуск.
-    private static let columnsAutosaveName = "ClaimpPlaylistColumns"
+    /// Версия v2 с 2026-09-16: коридоры ширин переписаны, старые сохранённые ширины
+    /// (общий минимум 18 pt на всё) выглядели бы как «не починено».
+    private static let columnsAutosaveName = "ClaimpPlaylistColumns.v2"
     /// Кегль, под который посчитаны текущие ширины: при смене кегля ширины масштабируются
     /// коэффициентом, а не переписываются токенами (иначе ручная ширина стиралась бы).
     private var widthsFontSize = SettingsStore.shared.value.playlistFontSize
+    /// Набор видимых колонок, под который посчитаны текущие ширины.
+    private var lastVisibleColumns: Set<String> = []
+    /// Страж от рекурсии: собственная правка ширины стреляет тем же уведомлением.
+    private var isBalancingColumns = false
 
     var statusText: String {
         PlaylistSummary.text(for: model.displayed)
@@ -71,11 +80,12 @@ final class PlaylistController: NSObject {
         for url in urls { refreshAnalysisCells(url: url) }
     }
 
-    /// Разбор готов: значения уходят в модель (тег важнее) и в видимые ячейки, без перестроения
-    /// таблицы - строка не мигает и выделение не слетает.
-    func applyAnalysis(url: URL, bpm: Double?, key: String?) {
+    /// Разбор готов: значения уходят в модель и в видимые ячейки, без перестроения таблицы -
+    /// строка не мигает и выделение не слетает. `inTag` = значения уже в файле, они главнее
+    /// прежнего тега.
+    func applyAnalysis(url: URL, bpm: Double?, key: String?, inTag: Bool) {
         analysing.remove(url)
-        _ = model.applyAnalysis(url: url, bpm: bpm, key: key)
+        _ = model.applyAnalysis(url: url, bpm: bpm, key: key, inTag: inTag)
         refreshAnalysisCells(url: url)
     }
 
@@ -84,6 +94,19 @@ final class PlaylistController: NSObject {
     func stopAnalysing(url: URL) {
         analysing.remove(url)
         refreshAnalysisCells(url: url)
+    }
+
+    /// Сменился звучащий трек: перекрашиваются ровно две строки (старая и новая), таблица
+    /// не перезагружается, выделение не слетает. Плейлист подкручивается к новой строке, если
+    /// она вне видимой области; ручной скролл между сменами не дёргается.
+    func setPlaying(url: URL?) {
+        guard playingURL != url else { return }
+        let rows = PlaylistNavigator.rowsToRepaint(
+            from: playingURL, to: url, in: model.displayed.map(\.url))
+        playingURL = url
+        for row in rows { repaintRow(row) }
+        guard let url, let row = model.displayed.firstIndex(where: { $0.url == url }) else { return }
+        tableView.scrollRowToVisible(row)
     }
 
     func togglePlayed(url: URL) {
@@ -125,9 +148,15 @@ final class PlaylistController: NSObject {
         // решает делегат, а порядок помнит то же автосохранение, что и ширины.
         tableView.allowsColumnReordering = true
         tableView.gridStyleMask = []
-        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        // Воздух между колонками: при нуле столбик цифр прилипал к соседней колонке.
+        tableView.intercellSpacing = NSSize(width: Theme.column.intercellWidth, height: 0)
         tableView.backgroundColor = Theme.background.base
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        // Лишнюю ширину окна забирает последняя авторесайзная колонка (Исполнитель), а не все
+        // сразу: `uniform` размазывал протяжку по всем девяти - жалоба владельца 16.09.
+        // Протяжку разделителя AppKit не компенсирует ни в одном режиме (research/07 §1.2),
+        // это делает columnDidResize ниже.
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        tableView.allowsColumnResizing = true
 
         tableView.headerView = FlatHeaderView()
         for column in PlaylistColumn.allCases {
@@ -147,6 +176,16 @@ final class PlaylistController: NSObject {
         // Автосохранение включается после добавления колонок: иначе восстанавливать нечему.
         tableView.autosaveName = Self.columnsAutosaveName
         tableView.autosaveTableColumns = true
+        // Окно меняет ширину - таблица обязана поменять свою следом (и наоборот: при первой
+        // раскладке ширина клипа приходит именно сюда). Одно место на все случаи: первый показ,
+        // растягивание окна, сужение.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(clipDidResize),
+            name: NSView.frameDidChangeNotification, object: scrollView.contentView)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(columnDidResize),
+            name: NSTableView.columnDidResizeNotification, object: tableView)
 
         tableView.target = self
         tableView.doubleAction = #selector(doubleClicked)
@@ -189,6 +228,7 @@ final class PlaylistController: NSObject {
 
         applySnapshot()
         applySettings()
+        updateSortIndicators()
     }
 
     // MARK: - Настройки (⌘,)
@@ -212,11 +252,138 @@ final class PlaylistController: NSObject {
             tableColumn.width = CGFloat(PlaylistFont.rescaled(
                 width: Double(tableColumn.width), fromRow: previousSize, toRow: settings.playlistFontSize))
         }
-        // Ширины изменились: таблица раздаёт свою ширину заново, текстовые колонки ужимаются
-        // до минимумов, прежде чем крайняя уедет за край окна.
-        tableView.sizeToFit()
+        // Инвариант восстанавливаем только когда ширины действительно поехали: кегль сменился
+        // (все ширины умножились на отношение кеглей) или колонку показали/спрятали. На прочих
+        // применениях настроек sizeToFit не зовём - он двигал бы ширины на каждое ⌘,.
+        // Затрагивает он только авторесайзные Название и Исполнитель (research/07 §1.2 блок D),
+        // ручные ширины числовых колонок остаются как поставили.
+        let visibilityChanged = visible != lastVisibleColumns
+        lastVisibleColumns = visible
+        if previousSize != settings.playlistFontSize || visibilityChanged {
+            restoreWidthInvariant()
+        }
         tableView.headerView?.needsDisplay = true
         reloadCells()
+    }
+
+    // MARK: - Ширины колонок
+
+    /// Сумма ширин обязана равняться ширине таблицы, а таблица - ширине окна: иначе расширение
+    /// окна не раздаёт место (дыра справа, research/07 §1.2 блок D), а лишняя ширина выпихивает
+    /// крайнюю колонку за край. После смены кегля или видимости колонки сумма едет, и AppKit
+    /// растягивает под неё саму таблицу (замер COLUMNPROBE font-16: таблица 737 pt при окне
+    /// 500 - Key за краем), поэтому сначала возвращаем таблице ширину окна и только потом
+    /// просим разложить колонки по ней.
+    @objc private func clipDidResize() {
+        restoreWidthInvariant()
+    }
+
+    private func restoreWidthInvariant() {
+        let clipWidth = scrollView.contentView.bounds.width
+        guard clipWidth > 0 else { return }
+        tableView.setFrameSize(NSSize(width: clipWidth, height: tableView.frame.height))
+        tableView.sizeToFit()
+    }
+
+    /// Ключи userInfo уведомления о ресайзе колонки (NSTableView.h:729).
+    private static let resizedColumnKey = "NSTableColumn"
+    private static let oldWidthKey = "NSOldWidth"
+
+    /// Владелец потянул разделитель: AppKit меняет только колонку слева от границы, а таблица
+    /// становится шире окна и крайняя правая уезжает за край (замеры research/07 §1.2, блок C).
+    /// Дельту гасят соседи справа, за ними эластичные слева - сумма ширин остаётся равной
+    /// ширине таблицы, горизонтального скролла не появляется.
+    @objc private func columnDidResize(_ note: Notification) {
+        guard !isBalancingColumns,
+            let header = tableView.headerView, header.resizedColumn != -1,
+            let resized = note.userInfo?[Self.resizedColumnKey] as? NSTableColumn,
+            let oldWidth = (note.userInfo?[Self.oldWidthKey] as? NSNumber).map({ CGFloat($0.doubleValue) })
+        else { return }
+        balanceColumns(after: resized, oldWidth: oldWidth)
+    }
+
+    /// Раздача дельты по соседям. Отдельно от уведомления: тот же путь зовёт отладочный
+    /// прогон `runColumnProbe`, которому мышь недоступна.
+    private func balanceColumns(after resized: NSTableColumn, oldWidth: CGFloat) {
+        let columns = tableView.tableColumns.filter { !$0.isHidden }
+        guard let index = columns.firstIndex(where: { $0 === resized }) else { return }
+        let delta = resized.width - oldWidth
+        guard delta != 0 else { return }
+
+        var widths = columns.map(\.width)
+        widths[index] = oldWidth
+        let limits = columns.map {
+            ColumnWidthLimits(
+                minWidth: $0.minWidth, maxWidth: $0.maxWidth,
+                isElastic: $0.resizingMask.contains(.autoresizingMask))
+        }
+        let balanced = ColumnWidthBalancer.redistribute(
+            delta: delta, resizedIndex: index, widths: widths, limits: limits)
+
+        isBalancingColumns = true
+        for (column, width) in zip(columns, balanced) where column.width != width {
+            column.width = width
+        }
+        isBalancingColumns = false
+    }
+
+
+    // MARK: - Отладочный прогон колонок (CLAIMP_COLUMN_PROBE=1)
+
+    /// Проверка поведения колонок без мыши: протяжка границы эмулируется тем же путём, каким
+    /// её обрабатывает уведомление о ресайзе, замеры уходят в stderr. Нужна для снимков и
+    /// доказательств, как `--open-settings`; на обычном запуске не работает.
+    func runColumnProbe() {
+        let steps: [(String, () -> Void)] = [
+            ("start", {}),
+            ("drag-bpm+40", { [weak self] in self?.emulateColumnDrag(.bpm, delta: 40) }),
+            ("drag-bpm-40", { [weak self] in self?.emulateColumnDrag(.bpm, delta: -40) }),
+            ("drag-title+200", { [weak self] in self?.emulateColumnDrag(.title, delta: 200) }),
+            ("font-16", { [weak self] in
+                SettingsStore.shared.update { $0.playlistFontSize = 16 }
+                self?.applySettings()
+            }),
+            ("font-back", { [weak self] in
+                SettingsStore.shared.update { $0.playlistFontSize = PlaylistFont.defaultSize }
+                self?.applySettings()
+            }),
+            ("sort-year", { [weak self] in
+                self?.applySort([NSSortDescriptor(key: "year", ascending: true)])
+            }),
+        ]
+        for (index, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2 + 3 * Double(index)) { [weak self] in
+                step.1()
+                self?.reportColumnProbe(step: index, name: step.0)
+            }
+        }
+    }
+
+    /// Протяжка границы без мыши: ширину ставим сами (уведомление от своей правки глушим),
+    /// дальше - ровно та же раздача дельты, что и при настоящей протяжке.
+    private func emulateColumnDrag(_ kind: PlaylistColumn, delta: CGFloat) {
+        guard let column = tableView.tableColumns.first(
+            where: { $0.identifier.rawValue == kind.rawValue }) else { return }
+        let oldWidth = column.width
+        isBalancingColumns = true
+        column.width = min(max(oldWidth + delta, column.minWidth), column.maxWidth)
+        isBalancingColumns = false
+        balanceColumns(after: column, oldWidth: oldWidth)
+    }
+
+    private func reportColumnProbe(step: Int, name: String) {
+        let columns = tableView.tableColumns.filter { !$0.isHidden }
+        let widths = columns
+            .map { "\($0.identifier.rawValue)=\(Int($0.width.rounded()))" }
+            .joined(separator: " ")
+        let sum = columns.reduce(0) { $0 + $1.width }
+        let lastEdge = columns.isEmpty ? 0 : tableView.rect(
+            ofColumn: tableView.tableColumns.count - 1).maxX
+        let line = "COLUMNPROBE \(step) \(name) window=\(tableView.window?.windowNumber ?? -1)"
+            + " table=\(Int(tableView.frame.width))"
+            + " clip=\(Int(scrollView.contentView.bounds.width)) sum=\(Int(sum.rounded()))"
+            + " lastEdge=\(Int(lastEdge.rounded())) \(widths)\n"
+        FileHandle.standardError.write(Data(line.utf8))
     }
 
     /// Перерисовка всех ячеек без перестроения списка: выделение и прокрутка на месте.
@@ -253,6 +420,7 @@ final class PlaylistController: NSObject {
             cell.identifier = PlayedDotCell.identifier
             cell.setLamp(on: track.isPlayed)
             cell.setSelected(selected)
+            cell.setPlaying(track.url == playingURL)
             cell.onTap = { [weak self] in self?.togglePlayed(url: track.url) }
             return cell
         }
@@ -267,6 +435,7 @@ final class PlaylistController: NSObject {
         // Ячейки переиспользуются: подсказку выставляем всегда, иначе она останется от чужой строки.
         cell.toolTip = tooltip(track: track, column: columnKind)
         cell.setSelected(selected)
+        cell.setPlaying(track.url == playingURL)
         return cell
     }
 
@@ -288,10 +457,11 @@ final class PlaylistController: NSObject {
         }
     }
 
-    /// Тональность в формате из настроек (Camelot / нота / оба). Тег в чужой записи («Am»,
-    /// «Fmin») как Camelot не разбирается - показываем его как есть, а не выдумываем перевод.
+    /// Тональность в формате из настроек (Camelot / нота / оба). Понимаются обе записи тега -
+    /// код Camelot («8A») и нота («Am»); в файл мы пишем ноту, а показываем как просит владелец.
+    /// Совсем чужая запись («Fmin») остаётся как есть, перевод не выдумываем.
     private func keyText(_ stored: String) -> String {
-        guard let key = MusicalKey(camelot: stored) else { return stored }
+        guard let key = MusicalKey(tag: stored) else { return stored }
         return key.display(SettingsStore.shared.value.keyFormat)
     }
 
@@ -304,7 +474,7 @@ final class PlaylistController: NSObject {
     /// Подсказка колонки Key: "8A · Am". Тег, который не разбирается как Camelot, показывается
     /// как есть и подсказки не получает.
     private func tooltip(track: Track, column: PlaylistColumn) -> String? {
-        guard column == .key, let key = track.key, let parsed = MusicalKey(camelot: key) else {
+        guard column == .key, let key = track.key, let parsed = MusicalKey(tag: key) else {
             return nil
         }
         return "\(parsed.camelot) · \(parsed.shortName)"
@@ -323,6 +493,16 @@ final class PlaylistController: NSObject {
             else { continue }
             cell.label.stringValue = text(track: track, number: row + 1, column: column)
             cell.toolTip = tooltip(track: track, column: column)
+        }
+    }
+
+    /// Перекраска одной строки: ячейки строки узнают, звучит она сейчас или нет.
+    /// Невидимые строки возьмут своё при создании ячейки.
+    private func repaintRow(_ row: Int) {
+        guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) else { return }
+        let playing = rowURL(row) == playingURL
+        for cell in rowView.subviews.compactMap({ $0 as? any RowTinting }) {
+            cell.setPlaying(playing)
         }
     }
 
@@ -387,8 +567,19 @@ final class PlaylistController: NSObject {
         else { return }
         model.sortField = field
         model.ascending = descriptor.ascending
+        updateSortIndicators()
         applySnapshot()
         notifyUpdate()
+    }
+
+    /// Треугольник сортировки в заголовке: плоская ячейка рисует его сама, значит ей надо
+    /// сказать, по какой колонке и в какую сторону сортируют.
+    private func updateSortIndicators() {
+        for tableColumn in tableView.tableColumns {
+            let sorted = model.sortField?.rawValue == tableColumn.identifier.rawValue
+            (tableColumn.headerCell as? FlatHeaderCell)?.sortAscending = sorted ? model.ascending : nil
+        }
+        tableView.headerView?.needsDisplay = true
     }
 
     // MARK: - Прочее
@@ -462,7 +653,7 @@ final class PlaylistController: NSObject {
         for row in visible.lowerBound..<visible.upperBound {
             let selected = tableView.selectedRowIndexes.contains(row)
             guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) else { continue }
-            for cell in rowView.subviews.compactMap({ $0 as? any SelectionTinting }) {
+            for cell in rowView.subviews.compactMap({ $0 as? any RowTinting }) {
                 cell.setSelected(selected)
             }
         }

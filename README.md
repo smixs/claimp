@@ -32,13 +32,19 @@ shuffle button in the transport makes the next track a random one.
 
 **BPM and key, on-device.** Right-click the selected tracks and pick "Проанализировать
 треки": Apple's MusicUnderstanding framework works them out in the background, two at a
-time, cached in the library database. Nothing is analysed behind your back unless you
-turn automatic analysis on in settings. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
+time, cached in the library database, and written straight into the file's tags (TBPM/TKEY
+and their equivalents), the way DJ software does it. Nothing is analysed behind your back
+unless you turn automatic analysis on in settings. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
 
 **Settings (⌘,).** One column of groups, no tabs: which playlist columns are visible,
 playlist font size (8-16 pt, the row stays as tight as the glyphs), automatic BPM/key
 analysis with its tempo range and length limit, key format (Camelot / note / both), and
 the waveform palette. Everything applies live, no restart.
+
+## Updates
+
+Claimp updates itself: Sparkle checks the appcast once a day and offers the new version
+when there is one. To ask right away, use **Claimp → Check for Updates…**.
 
 ## Install
 
@@ -77,8 +83,15 @@ in the Keychain, so this is for the maintainer):
 make dist      # Developer ID + hardened runtime -> build/Claimp.app, zip, styled DMG
 make notarize  # notarize the app, staple it, rebuild + notarize + staple the DMG
 make verify    # codesign / stapler / spctl checks on the result
-make release   # dist -> notarize -> verify
+make appcast   # sign the notarized zip and write appcast.xml (the update feed)
+make release   # dist -> notarize -> appcast -> verify
 ```
+
+Bump **both** `MARKETING_VERSION` and `BUILD_NUMBER` in `version.env` before a release:
+Sparkle compares `CFBundleVersion`, and installed copies ignore an update whose build
+number did not grow. The EdDSA signing key is a one-off `make sparkle-keys` - the private
+half stays in the login Keychain, the public half is committed as
+`Resources/sparkle-public-key.txt`.
 
 The same steps without `make`:
 
@@ -120,6 +133,7 @@ usage notes and license texts (where required) are in **[NOTICE](NOTICE)**:
 | [Aural Player](https://github.com/kartik-venugopal/aural-player) | waveform module, folder drop | MIT |
 | [Bòcan](https://github.com/bocan/bocan-music) | playlist table, file drag-out, media keys | Apache-2.0 |
 | [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | playback and metadata | MIT |
+| [Sparkle](https://github.com/sparkle-project/Sparkle) | auto-update | MIT |
 | TagLib (inside SFBAudioEngine) | tag reading | LGPL 2.1 / MPL 1.1 |
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite storage | MIT |
 | [swift-property-based](https://github.com/x-sheep/swift-property-based) | tests only | MIT |
@@ -148,12 +162,14 @@ Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Sergey Shima.
 - Лампочка «сыграно» живёт в SQLite и переживает перезапуск; порядок плейлиста и
   текущий трек тоже восстанавливаются.
 - BPM и тональность: у треков без тегов считаются на устройстве через системный
-  MusicUnderstanding, по два одновременно, результат кэшируется в базе. Тональность
-  в Camelot (8A), при наведении нота.
+  MusicUnderstanding, по два одновременно. Результат пишется в теги самого файла
+  (TBPM/TKEY и аналоги), а база остаётся кэшем. Тональность в Camelot (8A), при наведении нота.
 - Настройки (⌘,): видимость колонок, кегль плейлиста, автоанализ с диапазоном темпа,
   формат тональности, палитра волны. Применяется сразу.
 - Папку можно бросить на окно или на иконку в Dock; медиаклавиши и Now Playing
   работают при неактивном окне.
+- Обновляется сам: Sparkle раз в сутки смотрит фид и предлагает новую версию,
+  вручную - меню «Claimp → Check for Updates…».
 
 **Требования:** macOS 27+ (анализ BPM и тональности работает на системном фреймворке
 MusicUnderstanding, он появился в macOS 27), Swift 6.4 с SDK macOS 27 - на этой машине
@@ -182,3 +198,4 @@ Apple — Gatekeeper не ругается.
 
 **Лицензия:** Apache License 2.0 (`LICENSE`), Copyright 2026 Sergey Shima. Сторонний
 код и его лицензии — в `NOTICE`.
+**Website:** [claimp.app](https://claimp.app)

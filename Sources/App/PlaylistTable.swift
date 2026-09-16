@@ -38,11 +38,31 @@ enum PlaylistColumn: String, CaseIterable {
     /// в том числе числовая; содержимое, которое не влезло, обрезается, а строка не расширяется.
     /// Название и Исполнитель, кроме того, делят между собой лишнюю ширину окна.
     @MainActor func applyLimits(to column: NSTableColumn) {
-        column.minWidth = Theme.column.scaled(self == .played ? Theme.column.playedMin : Theme.column.minAny)
-        column.maxWidth = Theme.column.scaled(Theme.column.maxAny)
+        let range = widthRange(keyFormat: SettingsStore.shared.value.keyFormat)
+        column.minWidth = Theme.column.scaled(range.lowerBound)
+        column.maxWidth = Theme.column.scaled(range.upperBound)
         column.resizingMask = stretches
             ? [.userResizingMask, .autoresizingMask]
             : [.userResizingMask]
+    }
+
+    /// Коридор ручного изменения: у Названия и Исполнителя широкий, у числовых узкий -
+    /// иначе одна цифра растягивается на пол-окна (отчёт research/07 §6.1).
+    func widthRange(keyFormat: KeyFormat) -> ClosedRange<CGFloat> {
+        switch self {
+        case .played: return Theme.column.playedMin...Theme.column.playedMax
+        case .number: return Theme.column.numberMin...Theme.column.numberMax
+        case .title: return Theme.column.titleMin...Theme.column.titleMax
+        case .artist: return Theme.column.artistMin...Theme.column.artistMax
+        case .year: return Theme.column.yearMin...Theme.column.yearMax
+        case .duration: return Theme.column.durationMin...Theme.column.durationMax
+        case .bitrate: return Theme.column.bitrateMin...Theme.column.bitrateMax
+        case .bpm: return Theme.column.bpmMin...Theme.column.bpmMax
+        case .key:
+            return keyFormat == .both
+                ? Theme.column.keyBothMin...Theme.column.keyBothMax
+                : Theme.column.keyMin...Theme.column.keyMax
+        }
     }
 
     /// Ширина при первом показе: дальше её помнит autosave таблицы или рука владельца.
@@ -73,11 +93,27 @@ enum PlaylistColumn: String, CaseIterable {
     }
 }
 
-/// Выделение без системного синего рисуют ячейки (вдавленная поверхность).
+/// Выделение и «играющий трек» без системного синего рисуют сами ячейки.
 /// (Делегатный rowViewForRow на macOS 26 с diffable-источником не вызывается -
 /// таблица создаёт обычный NSTableRowView, проверено логом.)
-@MainActor protocol SelectionTinting: AnyObject {
+@MainActor protocol RowTinting: AnyObject {
     func setSelected(_ selected: Bool)
+    /// Строка звучащего трека: ярче обычного выделения и главнее его при совпадении.
+    func setPlaying(_ playing: Bool)
+}
+
+/// Цвета строки: играющий трек главнее выделения мышью, выделение - главнее обычного фона.
+/// Одно место на обе ячейки, чтобы «ярче» не разъехалось между колонками.
+@MainActor enum RowTint {
+    static func background(playing: Bool, selected: Bool) -> NSColor? {
+        if playing { return Theme.row.playingBackground }
+        return selected ? Theme.surface.raised : nil
+    }
+
+    static func text(playing: Bool, selected: Bool, base: NSColor) -> NSColor {
+        if playing { return Theme.row.playingText }
+        return selected ? Theme.accent.violet : base
+    }
 }
 
 /// Кастомное выделение вместо системного синего (приём Aural).
@@ -123,6 +159,11 @@ final class DotWell: NSView {
 /// Заголовки колонок: плоская полоса surface.raised, подпись 11 pt secondary,
 /// шов border.subtle снизу, индикатор сортировки - треугольник accent.violet.
 final class FlatHeaderCell: NSTableHeaderCell {
+    /// Направление сортировки по этой колонке; nil - сортируют не по ней. Штатную отрисовку
+    /// индикатора делает `NSTableHeaderCell.draw`, которую плоский заголовок не зовёт,
+    /// поэтому треугольник рисуем сами - у правого края, как в Aural и Cog.
+    var sortAscending: Bool?
+
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
         Theme.surface.raised.setFill()
         cellFrame.fill()
@@ -131,7 +172,21 @@ final class FlatHeaderCell: NSTableHeaderCell {
             x: cellFrame.minX, y: cellFrame.maxY - Theme.size.hairline,
             width: cellFrame.width, height: Theme.size.hairline
         ).fill()
+        // Вертикальная риска по левому краю: без неё границ колонок не видно и непонятно,
+        // где хвататься (жалоба владельца 16.09, кадры frame-06/12). У первой видимой колонки
+        // левый край - это край таблицы, там риска не нужна.
+        if cellFrame.minX > 0 {
+            let inset = Theme.column.headerTickInset
+            NSRect(
+                x: cellFrame.minX, y: cellFrame.minY + inset,
+                width: Theme.size.hairline, height: max(0, cellFrame.height - 2 * inset)
+            ).fill()
+        }
         drawInterior(withFrame: cellFrame, in: controlView)
+        if let ascending = sortAscending {
+            drawSortIndicator(
+                withFrame: cellFrame, in: controlView, ascending: ascending, priority: 0)
+        }
     }
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
@@ -147,9 +202,12 @@ final class FlatHeaderCell: NSTableHeaderCell {
             ]
         )
         let height = title.size().height
+        // Треугольник сортировки рисуется в правом поле ячейки, поэтому места под него
+        // отдельно не резервируем: подпись и так заканчивается за 8 pt до края.
+        let inset = Theme.column.cellInsetLeading + Theme.column.cellInsetTrailing
         title.draw(in: NSRect(
-            x: cellFrame.minX + Theme.column.cellInset, y: cellFrame.midY - height / 2,
-            width: max(0, cellFrame.width - 2 * Theme.column.cellInset), height: height
+            x: cellFrame.minX + Theme.column.cellInsetLeading, y: cellFrame.midY - height / 2,
+            width: max(0, cellFrame.width - inset), height: height
         ))
     }
 
@@ -158,7 +216,7 @@ final class FlatHeaderCell: NSTableHeaderCell {
     ) {
         let side: CGFloat = Theme.spacing.s
         let box = NSRect(
-            x: cellFrame.midX - side / 2, y: cellFrame.midY - side / 4,
+            x: cellFrame.maxX - side, y: cellFrame.midY - side / 4,
             width: side, height: side / 2
         )
         let path = NSBezierPath()
@@ -172,12 +230,33 @@ final class FlatHeaderCell: NSTableHeaderCell {
     }
 }
 
-/// Фон полосы заголовков за последней колонкой.
+/// Фон полосы заголовков за последней колонкой и широкая зона захвата разделителя.
 final class FlatHeaderView: NSTableHeaderView {
     override func draw(_ dirtyRect: NSRect) {
         Theme.surface.raised.setFill()
         dirtyRect.fill()
         super.draw(dirtyRect)
+    }
+
+    /// Курсор ↔ появляется не по пикселю границы, а в зоне вокруг неё: свои ректы
+    /// складываются с приватными ректами AppKit, конфликта нет (research/07 §3.4).
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let table = tableView else { return }
+        let zone = Theme.column.resizeHotZone
+        for index in 0..<table.numberOfColumns where !table.tableColumns[index].isHidden {
+            let rect = headerRect(ofColumn: index)
+            guard rect.width > 0 else { continue }
+            addCursorRect(
+                NSRect(x: rect.maxX - zone, y: 0, width: 2 * zone, height: bounds.height),
+                cursor: .resizeLeftRight)
+        }
+    }
+
+    /// Ширины колонок поехали - зоны захвата пересчитываются под новые границы.
+    override func layout() {
+        super.layout()
+        window?.invalidateCursorRects(for: self)
     }
 }
 
@@ -197,12 +276,13 @@ final class PlayedDotButton: NSButton {
     }
 }
 
-final class PlayedDotCell: NSTableCellView, SelectionTinting {
+final class PlayedDotCell: NSTableCellView, RowTinting {
     static let identifier = NSUserInterfaceItemIdentifier("PlayedDotCell")
     let well = DotWell()
     let dot = PlayedDotButton()
     var onTap: (() -> Void)?
     private var isCellSelected = false
+    private var isPlayingRow = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -239,20 +319,32 @@ final class PlayedDotCell: NSTableCellView, SelectionTinting {
 
     func setSelected(_ selected: Bool) {
         isCellSelected = selected
-        Theme.fill(self, color: selected ? Theme.surface.raised : nil)
+        restyle()
+    }
+
+    func setPlaying(_ playing: Bool) {
+        isPlayingRow = playing
+        restyle()
     }
 
     override func layout() {
         super.layout()
-        Theme.fill(self, color: isCellSelected ? Theme.surface.raised : nil)
+        restyle()
+    }
+
+    private func restyle() {
+        Theme.fill(self, color: RowTint.background(playing: isPlayingRow, selected: isCellSelected))
     }
 }
 
-final class PlaylistTextCell: NSTableCellView, SelectionTinting {
+final class PlaylistTextCell: NSTableCellView, RowTinting {
     static let identifier = NSUserInterfaceItemIdentifier("PlaylistTextCell")
     let label = FadingLabel()
-    var baseColor: NSColor = Theme.text.primary
+    var baseColor: NSColor = Theme.text.primary {
+        didSet { restyle() }
+    }
     private var isCellSelected = false
+    private var isPlayingRow = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -260,8 +352,8 @@ final class PlaylistTextCell: NSTableCellView, SelectionTinting {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Theme.column.cellInset),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Theme.column.cellInset),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Theme.column.cellInsetLeading),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Theme.column.cellInsetTrailing),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -272,14 +364,25 @@ final class PlaylistTextCell: NSTableCellView, SelectionTinting {
 
     func setSelected(_ selected: Bool) {
         isCellSelected = selected
-        label.textColor = selected ? Theme.accent.violet : baseColor
-        label.fadeColor = selected ? Theme.surface.raised : Theme.background.base
-        Theme.fill(self, color: selected ? Theme.surface.raised : nil)
+        restyle()
+    }
+
+    func setPlaying(_ playing: Bool) {
+        isPlayingRow = playing
+        restyle()
     }
 
     override func layout() {
         super.layout()
-        Theme.fill(self, color: isCellSelected ? Theme.surface.raised : nil)
+        restyle()
+    }
+
+    private func restyle() {
+        let fill = RowTint.background(playing: isPlayingRow, selected: isCellSelected)
+        label.textColor = RowTint.text(playing: isPlayingRow, selected: isCellSelected, base: baseColor)
+        // Мягкая обрезка уходит в цвет самой строки, иначе край текста гаснет в чужой фон.
+        label.fadeColor = fill ?? Theme.background.base
+        Theme.fill(self, color: fill)
     }
 }
 

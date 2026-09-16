@@ -1,4 +1,4 @@
-.PHONY: build test app run clean dist notarize verify release toolchain
+.PHONY: build test app run clean dist notarize verify release toolchain sparkle-keys appcast
 
 # Тулчейн один на всех: анализ BPM/тональности собирается только SDK macOS 27 из
 # Command Line Tools (в SDK Xcode 26.6 нет MusicUnderstanding.framework). Значение
@@ -23,6 +23,13 @@ DIST_SIGN_FLAGS = --options runtime --timestamp
 #     --apple-id <apple-id> --team-id M37N642Q58 --password <app-specific-password>)
 # Профиль чужой команды не подойдёт: notarytool проверяет, что Team ID подписи совпадает.
 NOTARY_PROFILE ?= majento-notary
+
+# Утилиты Sparkle (generate_keys / generate_appcast) приезжают тем же бинарным
+# артефактом, что и сам фреймворк; конкретный путь выбирает SwiftPM, поэтому его
+# ищем, а не прописываем. Артефакт появляется после `make build`.
+SPARKLE_BIN = $(shell find .build/artifacts -type d -path '*/sparkle/Sparkle/bin' | head -1)
+# Каталог для фида: ровно один архив - последняя версия. Дельт у Claimp нет осознанно.
+UPDATES_DIR = build/updates
 
 toolchain:
 	scripts/toolchain.sh
@@ -85,13 +92,43 @@ verify: toolchain
 	if grep -rn "Bundle\.module" Sources; then echo "ERROR: аксессор ресурсов модуля в Sources - установленное приложение не найдёт Claimp_App.bundle"; exit 1; fi
 	scripts/verify-launch.sh "$(APP_BUNDLE)"
 	codesign -vvv --deep --strict "$(APP_BUNDLE)"
+	/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$(APP_BUNDLE)/Contents/Info.plist"
+	/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$(APP_BUNDLE)/Contents/Info.plist"
 	codesign -dv --verbose=4 "$(APP_BUNDLE)"
 	xcrun stapler validate "$(APP_BUNDLE)"
 	xcrun stapler validate "$(DMG)"
 	spctl -a -vv -t install "$(DMG)"
 	spctl -a -vv "$(APP_BUNDLE)"
 
+# Одноразовая настройка автообновления. generate_keys кладёт приватный ключ EdDSA в
+# login Keychain под аккаунтом Claimp (ключ Sezish не переиспользуем) и печатает
+# публичный - его и только его кладём в Resources/sparkle-public-key.txt.
+# Приватный ключ не коммитить и не пересылать; резервная копия делается отдельно
+# (`generate_keys --account Claimp -x <файл>`) и хранится офлайн: потеря ключа
+# означает, что уже установленные копии обновить больше нечем.
+sparkle-keys: build
+	$(SPARKLE_BIN)/generate_keys --account Claimp
+	$(SPARKLE_BIN)/generate_keys --account Claimp -p > Resources/sparkle-public-key.txt
+
+# Фид обновлений. Запускать ПОСЛЕ `make notarize`: именно там zip пересобирается из
+# проштампованного бандла, и в фид должен попасть архив с тикетом.
+# generate_appcast подписывает архив приватным ключом из Keychain (аккаунт Claimp)
+# и пишет appcast.xml; копия в корне репозитория - это и есть публикуемый фид
+# (raw main), его коммитит тимлид.
+appcast:
+	rm -rf "$(UPDATES_DIR)"
+	mkdir -p "$(UPDATES_DIR)"
+	cp "$(ZIP)" "$(UPDATES_DIR)/Claimp-$(VERSION).zip"
+	$(SPARKLE_BIN)/generate_appcast "$(UPDATES_DIR)" --account Claimp \
+		--download-url-prefix https://github.com/smixs/claimp/releases/download/v$(VERSION)/ \
+		--link https://github.com/smixs/claimp
+	cp "$(UPDATES_DIR)/appcast.xml" appcast.xml
+
+# Полный релиз. Перед запуском поднять в version.env И MARKETING_VERSION, И
+# BUILD_NUMBER: Sparkle сравнивает CFBundleVersion (BUILD_NUMBER), и если он не
+# вырос, установленные копии новую версию просто не увидят.
 release:
 	$(MAKE) dist
 	$(MAKE) notarize
+	$(MAKE) appcast
 	$(MAKE) verify

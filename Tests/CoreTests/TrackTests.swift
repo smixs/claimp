@@ -61,3 +61,27 @@ func headerSubtitleSkipsEmpty() {
     #expect(makeTrack("a", format: "FLAC").headerSubtitle == "FLAC")
     #expect(makeTrack("a", format: "").headerSubtitle == "")
 }
+
+@Test("Значения, записанные в тег, заменяют прежние - это теперь и есть тег")
+func writtenTagsReplacePreviousValues() {
+    var track = makeTrack("a")
+    track.bpm = 120
+    track.key = "8A"
+
+    let updated = track.withTags(bpm: 174, key: "5A")
+
+    #expect(updated.bpm == 174)
+    #expect(updated.key == "5A")
+}
+
+@Test("Поле, которое в тег не писали, остаётся прежним")
+func withTagsKeepsUntouchedField() {
+    var track = makeTrack("a")
+    track.bpm = 120
+    track.key = "8A"
+
+    let updated = track.withTags(bpm: nil, key: nil)
+
+    #expect(updated.bpm == 120)
+    #expect(updated.key == "8A")
+}

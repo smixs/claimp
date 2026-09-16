@@ -11,9 +11,10 @@
 | Сборка | `make build` (или `DEVELOPER_DIR=/Library/Developer/CommandLineTools swift build`) | exit 0, 0 warnings, ~40 с тёплая |
 | Тесты | `make test` (или `DEVELOPER_DIR=... swift test --filter <Suite>`) | exit 0; при нагрузке машины `--no-parallel` |
 | Приложение | `bash scripts/build-app.sh` → `build/Claimp.app` | exit 0 |
-| Запуск | `open build/Claimp.app` (плейлист восстановится из базы) или `open -a build/Claimp.app <папка с треками>` | окно ~500×760 |
+| Запуск | своя копия в `$MAIN/.scratch/work/evidence/<задача>/Claimp.app`, `CFFIXED_USER_HOME=$MAIN/.scratch/work/evidence/<задача>/home open -n <копия>` - песочница: база и настройки владельца (`~/Library/Application Support/Claimp`, домен `dev.shima.claimp`) не трогаются | окно ~500×760 |
 | Скриншот | `sleep 5; screencapture -x $MAIN/.scratch/work/evidence/<задача>/<имя>.png` (главный checkout, не worktree: worktree удаляется после мержа вместе со своим .scratch) | смотреть самому (Read), сравнивать с эталоном |
-| Остановка | `pkill -x Claimp` | всегда в конце |
+| Остановка | `kill <pid своей копии>` (pid запомнить при `open -n`, искать по полному пути своей копии); `pkill -x Claimp` ЗАПРЕЩЁН - снимает экземпляр владельца | всегда в конце |
+| Релиз | `make release` (dist → notarize → appcast → verify) | перед ним поднять в `version.env` И `MARKETING_VERSION`, И `BUILD_NUMBER`: Sparkle сравнивает `CFBundleVersion`, и без роста номера установленные копии обновления не увидят. Ключ EdDSA заводится один раз `make sparkle-keys` (приватная половина - только login Keychain, публичная - `Resources/sparkle-public-key.txt`) |
 | Лог гейта | каждая проверка отдельной строкой, вывод в `$MAIN/.scratch/work/gates/<задача>.log` (главный checkout); на проверочных командах пайпы (`\| tail`, `\| grep`) запрещены | |
 
 Корпус для живых проверок: папка с треками на машине исполнителя (в репозиторий не входит; живые тесты анализатора берут её из `CLAIMP_CORPUS=~/Music/deemix make test`, без переменной пропускаются), один длинный трек ~60 мин для проверки памяти и волны, фикстуры с тегами - `Tests/Fixtures/`.

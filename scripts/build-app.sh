@@ -26,6 +26,29 @@ fi
 MARKETING_VERSION=${MARKETING_VERSION:-0.1.0}
 BUILD_NUMBER=${BUILD_NUMBER:-1}
 
+# Sparkle: адрес фида и публичный ключ EdDSA попадают в Info.plist бандла.
+# Фид лежит в публичном репозитории (raw main), архивы - на GitHub Releases;
+# SPARKLE_FEED_URL переопределяется снаружи для локальных прогонов обновления.
+SPARKLE_FEED_URL=${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/smixs/claimp/main/appcast.xml}
+# Публичная половина ключа коммитится, приватная живёт только в login Keychain
+# (`make sparkle-keys`). Нет ключа или плейсхолдер: ad-hoc сборка идёт без него
+# (Sparkle проверит обновление по подписи кода), дистрибутив - останавливается.
+SPARKLE_KEY_FILE="$ROOT/Resources/sparkle-public-key.txt"
+SPARKLE_PUBLIC_KEY=""
+if [[ -f "$SPARKLE_KEY_FILE" ]]; then
+  SPARKLE_PUBLIC_KEY=$(tr -d '[:space:]' < "$SPARKLE_KEY_FILE")
+fi
+case "$SPARKLE_PUBLIC_KEY" in
+  REPLACE_WITH*) SPARKLE_PUBLIC_KEY="" ;;
+esac
+if [[ -z "$SPARKLE_PUBLIC_KEY" ]]; then
+  if [[ "$SIGN_ID" != "-" ]]; then
+    echo "ERROR: нет публичного ключа EdDSA в $SPARKLE_KEY_FILE - дистрибутив без SUPublicEDKey выпускать нельзя (сделай make sparkle-keys)" >&2
+    exit 1
+  fi
+  echo "WARNING: нет публичного ключа EdDSA ($SPARKLE_KEY_FILE) - ad-hoc сборка без SUPublicEDKey, обновление проверяется только по подписи кода" >&2
+fi
+
 ARCH_LIST=( ${ARCHES:-} )
 if [[ ${#ARCH_LIST[@]} -eq 0 ]]; then
   ARCH_LIST=("$(uname -m)")
@@ -65,6 +88,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>${MACOS_MIN_VERSION}</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>SUFeedURL</key><string>${SPARKLE_FEED_URL}</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>86400</integer>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -90,6 +116,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# Отдельной строкой, а не в шаблоне: без ключа записи быть не должно вовсе -
+# на нечитаемом SUPublicEDKey Sparkle не стартует и через секунду после запуска
+# показывает модалку об ошибке.
+if [[ -n "$SPARKLE_PUBLIC_KEY" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" "$APP/Contents/Info.plist" >/dev/null
+fi
 
 # Каталог продуктов спрашиваем у самого SwiftPM: у тулчейна CLT (Swift 6.4, новая система
 # сборки) это `.build/out/Products/<Conf>`, а не `.build/<arch>-apple-macosx/<conf>`, как было
@@ -158,8 +191,30 @@ if [[ ${#SIGN_FLAG_ARGS[@]} -gt 0 ]]; then
   SIGN_ARGS+=("${SIGN_FLAG_ARGS[@]}")
 fi
 
+# Sparkle - особый случай: внутри фреймворка лежат не голые Mach-O, а бандлы
+# (XPC-сервисы, Updater.app) со своими entitlements. Общий цикл ниже подписал бы
+# бинарник ВНУТРИ бандла вместо самого бандла, и `codesign --deep --strict` на
+# приложении это не принимает; entitlements при этом потерялись бы и установщик
+# обновления перестал бы запускаться. Порядок строго изнутри наружу.
+sign_sparkle() {
+  local fw="$1"
+  local versions="$fw/Versions/B"
+  local xpc
+  for xpc in "$versions/XPCServices/"*.xpc; do
+    [[ -d "$xpc" ]] || continue
+    codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$xpc"
+  done
+  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$versions/Autoupdate"
+  codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$versions/Updater.app"
+  codesign "${SIGN_ARGS[@]}" "$fw"
+}
+
 for fw in "$APP/Contents/Frameworks/"*.framework; do
   [[ -d "$fw" ]] || continue
+  if [[ "$(basename "$fw")" == "Sparkle.framework" ]]; then
+    sign_sparkle "$fw"
+    continue
+  fi
   # Внутренние подписи xcframework-бинарников SFBAudioEngine чужие (их автор):
   # для нотаризации каждый Mach-O должен нести нашу Developer ID подпись.
   while IFS= read -r -d '' bin; do

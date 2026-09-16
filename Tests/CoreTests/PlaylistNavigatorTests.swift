@@ -109,3 +109,22 @@ func randomNeverRepeatsCurrent() async {
         }
     }
 }
+
+@Test("Смена играющего трека перерисовывает только старую и новую строки")
+func repaintOnlyTwoRows() {
+    let urls = [a, b, c]
+    #expect(PlaylistNavigator.rowsToRepaint(from: a, to: c, in: urls) == [0, 2])
+    // Начало и конец воспроизведения: перерисовывается одна строка.
+    #expect(PlaylistNavigator.rowsToRepaint(from: nil, to: b, in: urls) == [1])
+    #expect(PlaylistNavigator.rowsToRepaint(from: b, to: nil, in: urls) == [1])
+}
+
+@Test("Тот же трек и строки вне списка не перерисовываются")
+func repaintSkipsUnchangedAndMissingRows() {
+    let urls = [a, b, c]
+    #expect(PlaylistNavigator.rowsToRepaint(from: b, to: b, in: urls).isEmpty)
+    #expect(PlaylistNavigator.rowsToRepaint(from: nil, to: nil, in: urls).isEmpty)
+    // Трек отфильтрован поиском - строки для него нет, перерисовывать нечего.
+    #expect(PlaylistNavigator.rowsToRepaint(from: gone, to: a, in: urls) == [0])
+    #expect(PlaylistNavigator.rowsToRepaint(from: a, to: gone, in: urls) == [0])
+}

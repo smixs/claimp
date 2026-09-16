@@ -42,6 +42,17 @@ public enum PlaylistNavigator {
         playing ?? selected
     }
 
+    /// Строки, которые надо перерисовать при смене играющего трека: старая и новая.
+    /// Только они - таблица не перезагружается целиком, выделение и прокрутка остаются на месте.
+    /// Тот же трек и трек, которого нет в видимом списке (отфильтрован поиском), строк не дают.
+    public static func rowsToRepaint(from previous: URL?, to current: URL?, in urls: [URL]) -> [Int] {
+        guard previous != current else { return [] }
+        return [previous, current]
+            .compactMap { $0 }
+            .compactMap { urls.firstIndex(of: $0) }
+            .sorted()
+    }
+
     /// Восстановление плейлиста: отсутствующие на диске выбрасываются молча.
     /// Текущий трек, которого нет среди выживших, становится nil.
     public static func restore(

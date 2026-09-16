@@ -78,6 +78,46 @@ public struct MusicalKey: Sendable, Equatable, Hashable {
         self.init(tonic: tonic, mode: mode)
     }
 
+    /// Тональность как она написана в теге: код Camelot ("8A") или нота ("Am", "F#m").
+    /// Обе записи встречаются в чужих файлах, ноту пишем в тег и мы сами (T22).
+    public init?(tag: String) {
+        if let camelot = MusicalKey(camelot: tag) {
+            self = camelot
+        } else if let note = MusicalKey(shortName: tag) {
+            self = note
+        } else {
+            return nil
+        }
+    }
+
+    /// Разбор нотной записи: "Am" → Am, "F#m" → F#m, "Bbm" → A#m, "C" → C.
+    /// Незнакомая запись - nil: чужой тег не угадываем.
+    public init?(shortName raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        let minor = text.count > 1 && text.hasSuffix("m")
+        let note = minor ? String(text.dropLast()) : text
+        guard let semitone = Self.semitone(note: note), let tonic = Tonic(rawValue: semitone) else {
+            return nil
+        }
+        self.init(tonic: tonic, mode: minor ? .minor : .major)
+    }
+
+    /// Ноты без лада: "C" → 0, "C#" → 1, "Db" → 1. Диез и бемоль, одна альтерация.
+    static func semitone(note: String) -> Int? {
+        guard let letter = note.first, let base = naturalSemitones[letter] else { return nil }
+        switch note.dropFirst() {
+        case "": return base
+        case "#", "♯": return (base + 1) % 12
+        case "b", "♭": return (base + 11) % 12
+        default: return nil
+        }
+    }
+
+    /// Ступени натурального звукоряда в полутонах от C.
+    static let naturalSemitones: [Character: Int] = [
+        "C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11,
+    ]
+
     /// Параллельный мажор минорной тональности: у них общий номер на круге (Am и C - оба 8).
     private var relativeMajorSemitone: Int {
         mode == .minor ? (tonic.rawValue + 3) % 12 : tonic.rawValue

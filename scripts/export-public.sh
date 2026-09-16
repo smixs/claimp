@@ -48,6 +48,14 @@ FILES=(
   implementation-notes.md
 )
 
+# Фид автообновления: появляется после первого `make appcast` (цель релиза) и
+# коммитится в публичный main - Sparkle читает его по raw-ссылке. До первого релиза
+# со Sparkle файла в репозитории нет, поэтому список отдельный: отсутствие - строка
+# отчёта, а не остановка.
+OPTIONAL_FILES=(
+  appcast.xml
+)
+
 # Каталоги, которые копируются целиком (внутреннее вычищается ниже).
 DIRS=(
   Sources
@@ -85,6 +93,14 @@ for f in "${FILES[@]}"; do
     exit 1
   fi
   cp "$ROOT/$f" "$DEST/$f"
+done
+
+for f in "${OPTIONAL_FILES[@]}"; do
+  if [[ -f "$ROOT/$f" ]]; then
+    cp "$ROOT/$f" "$DEST/$f"
+  else
+    echo "== $f в источнике нет (первый релиз со Sparkle ещё не выпущен) - в экспорт не идёт"
+  fi
 done
 
 for d in "${DIRS[@]}"; do

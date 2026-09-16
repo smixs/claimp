@@ -43,6 +43,16 @@ enum Theme {
         static let gray = NSColor.hex(0x7D8294)
     }
 
+    /// Строка плейлиста. Выделение мышью рисуется поверхностью `surface.raised`; играющий трек
+    /// заметно ярче (решение владельца 16.09 ~07:00) - его видно при включённом Random.
+    enum row {
+        /// Заливка строки играющего трека: акцент приглушён до фона, но втрое контрастнее
+        /// обычного выделения.
+        static let playingBackground = NSColor.hex(0x4B3D77)
+        /// Текст на этой заливке: светлее primary, но не белый (белый в интерфейсе запрещён).
+        static let playingText = NSColor.hex(0xE6DCFA)
+    }
+
     enum border {
         /// Шов под заголовками колонок, разделители.
         static let subtle = NSColor.hex(0x232733)
@@ -144,21 +154,50 @@ enum Theme {
         }
 
         /// Поля текста в ячейке и в заголовке: у плотной строки отступы меньше общих spacing.
-        static let cellInset: CGFloat = 3
-        /// Общий минимум ручного сужения: две цифры при базовом кегле плюс поля ячейки.
-        /// Уже - и в колонке не видно ничего; масштабируется вместе с кеглем, как стартовые ширины.
-        static let minAny: CGFloat = 18
-        /// Общий максимум ручного расширения: шире любого разумного окна плеера.
-        static let maxAny: CGFloat = 800
-        /// Минимум колонки лампочки - сама лампочка с полями, а не две цифры.
-        static let playedMin: CGFloat = Theme.size.lamp + 2 * cellInset
+        /// Справа больше, чем слева: столбик цифр не должен упираться в соседнюю колонку
+        /// (Aural держит те же 8 pt, отчёт research/07 §5).
+        static let cellInsetLeading: CGFloat = 4
+        static let cellInsetTrailing: CGFloat = 8
+        /// Воздух между колонками: при нуле цифра прилипала к соседке (жалоба владельца 16.09).
+        static let intercellWidth: CGFloat = 2
+        /// Риска между заголовками: отступ сверху и снизу, чтобы линия читалась как риска,
+        /// а не как сплошная сетка.
+        static let headerTickInset: CGFloat = 3
+        /// Полуширина зоны, в которой курсор над границей колонок превращается в ↔.
+        static let resizeHotZone: CGFloat = 3
+        /// Коридоры ручного изменения ширины: у текста широкий, у чисел узкий
+        /// (так у Aural, Cog, Bòcan - отчёт research/07 §4.5, значения §6.1).
+        /// Минимумы номера и года подняты против §6.1 по замеру на живом окне: при поле 8 pt
+        /// справа «154» и «2024» в 22 и 32 pt обрезаются на середине цифры.
+        static let playedMin: CGFloat = 16
+        static let playedMax: CGFloat = 24
+        static let numberMin: CGFloat = 28
+        static let numberMax: CGFloat = 44
+        static let titleMin: CGFloat = 120
+        static let titleMax: CGFloat = 800
+        static let artistMin: CGFloat = 90
+        static let artistMax: CGFloat = 800
+        static let yearMin: CGFloat = 40
+        static let yearMax: CGFloat = 56
+        static let durationMin: CGFloat = 44
+        static let durationMax: CGFloat = 64
+        static let bitrateMin: CGFloat = 48
+        static let bitrateMax: CGFloat = 72
+        static let bpmMin: CGFloat = 40
+        static let bpmMax: CGFloat = 64
+        static let keyMin: CGFloat = 40
+        static let keyMax: CGFloat = 72
+        static let keyBothMin: CGFloat = 60
+        static let keyBothMax: CGFloat = 96
         static let played: CGFloat = 16
-        static let number: CGFloat = 22
+        /// Стартовая ширина номера и года: три цифры и четыре цифры плюс поля ячейки
+        /// (при поле 8 pt справа «2024» в 32 pt уже не помещалось - замер на живом окне).
+        static let number: CGFloat = 28
         /// Стартовая ширина: сумма колонок влезает в окно по умолчанию (500 pt),
         /// на широком окне таблица растягивает текстовые колонки сама.
         static let titleIdeal: CGFloat = 130
         static let artistIdeal: CGFloat = 100
-        static let year: CGFloat = 32
+        static let year: CGFloat = 40
         static let duration: CGFloat = 44
         /// kbps целым числом.
         static let bitrate: CGFloat = 52

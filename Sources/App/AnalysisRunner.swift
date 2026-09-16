@@ -1,14 +1,18 @@
 import Analysis
 import Core
 import Foundation
+import TagWriter
 
 /// Что случилось с одним треком в фоновом разборе.
 enum AnalysisEvent: Sendable {
-    /// Готово: значения уже с учётом кэша, тег поверх них подставит сам трек.
-    case ready(URL, bpm: Double?, key: String?)
+    /// Готово. `inTag` = значения уже записаны в файл, то есть это теперь содержимое тега
+    /// и оно главнее прежнего; из кэша приходит `false` - там тег поверх подставит сам трек.
+    case ready(URL, bpm: Double?, key: String?, inTag: Bool)
     /// Микс длиннее порога: не считаем и говорим об этом вслух, а не оставляем пустоту молча.
     case skipped(URL, reason: String)
-    case failed(URL, reason: String)
+    /// Не сложилось. Посчитанные значения (если анализ до них дошёл) всё равно идут в ячейку -
+    /// владелец видит число и отдельно счётчик ошибок.
+    case failed(URL, reason: String, bpm: Double?, key: String?)
     /// Разбор оборвали (выход из приложения, новая папка): не ошибка.
     case cancelled(URL)
 }
@@ -112,7 +116,7 @@ final class AnalysisRunner {
         do {
             let stamp = try FileStamp.of(url: url)
             if !force, let cached = try store?.analysis(for: url, stamp: stamp) {
-                return .ready(url, bpm: cached.bpm, key: cached.key)
+                return .ready(url, bpm: cached.bpm, key: cached.key, inTag: false)
             }
             switch try await analyzer.analyze(url: url) {
             case .skippedTooLong(let duration):
@@ -120,16 +124,34 @@ final class AnalysisRunner {
                 return .skipped(
                     url, reason: "track is \(minutes) min, longer than the analysis limit")
             case .analyzed(let analysis):
-                let key = analysis.key?.camelot
-                try store?.saveAnalysis(
-                    AnalysisRecord(bpm: analysis.bpm, key: key, analyzedAt: analysis.analyzedAt),
-                    for: url, stamp: stamp)
-                return .ready(url, bpm: analysis.bpm, key: key)
+                return persist(analysis, for: url, in: store)
             }
         } catch is CancellationError {
             return .cancelled(url)
         } catch {
-            return .failed(url, reason: String(describing: error))
+            return .failed(url, reason: String(describing: error), bpm: nil, key: nil)
         }
+    }
+
+    /// Порядок обязателен (решение владельца 16.09 ~07:00): сначала тег в файле, потом свежий
+    /// отпечаток, потом кэш. Запись меняет mtime, поэтому отпечаток берётся уже после неё -
+    /// иначе следующий скан промахнётся мимо кэша и посчитает трек заново.
+    /// Тег не записался - в кэш не пишем вовсе: источник правды тег, а не база.
+    private nonisolated static func persist(
+        _ analysis: TrackAnalysis, for url: URL, in store: PlayedStoring?
+    ) -> AnalysisEvent {
+        // В тег идёт нотная запись ("Am"): её читают Rekordbox, Serato и Traktor, а ID3v2 TKEY
+        // по спеке не длиннее трёх символов. В интерфейсе и кэше остаётся код Camelot.
+        let key = analysis.key?.camelot
+        do {
+            try TagWriter.write(bpm: analysis.bpm, key: analysis.key?.shortName, to: url)
+            let stamp = try FileStamp.of(url: url)
+            try store?.saveAnalysis(
+                AnalysisRecord(bpm: analysis.bpm, key: key, analyzedAt: analysis.analyzedAt),
+                for: url, stamp: stamp)
+        } catch {
+            return .failed(url, reason: String(describing: error), bpm: analysis.bpm, key: key)
+        }
+        return .ready(url, bpm: analysis.bpm, key: key, inTag: true)
     }
 }

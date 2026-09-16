@@ -29,10 +29,13 @@ final class PlaylistModel {
     }
 
     /// Подставляет результат разбора в трек; false - трека уже нет в списке или значения те же.
-    /// Тег анализом не перетирается: приоритет живёт в `Track.withAnalysis`.
-    func applyAnalysis(url: URL, bpm: Double?, key: String?) -> Bool {
+    /// `inTag` = значения уже записаны в файл, значит это и есть теперь тег и он главнее
+    /// прежнего; иначе тег анализом не перетирается (приоритет живёт в `Track.withAnalysis`).
+    func applyAnalysis(url: URL, bpm: Double?, key: String?, inTag: Bool) -> Bool {
         guard let index = allTracks.firstIndex(where: { $0.url == url }) else { return false }
-        let updated = allTracks[index].withAnalysis(bpm: bpm, key: key)
+        let updated = inTag
+            ? allTracks[index].withTags(bpm: bpm, key: key)
+            : allTracks[index].withAnalysis(bpm: bpm, key: key)
         guard updated != allTracks[index] else { return false }
         allTracks[index] = updated
         return true

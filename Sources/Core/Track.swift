@@ -81,6 +81,16 @@ public struct Track: Sendable, Equatable, Identifiable {
         return updated
     }
 
+    /// Трек после того, как значения ушли в теги файла (решение владельца 16.09 ~07:00):
+    /// они и есть теперь содержимое тега, поэтому заменяют прежние, а не уступают им.
+    /// Поле, которое не писали (nil), остаётся как было.
+    public func withTags(bpm writtenBPM: Double?, key writtenKey: String?) -> Track {
+        var updated = self
+        updated.bpm = writtenBPM ?? bpm
+        updated.key = writtenKey ?? key
+        return updated
+    }
+
     /// Год для колонки таблицы: нет года в теге - пустая ячейка, не «0» и не «—».
     public var displayYear: String {
         guard let year else { return "" }

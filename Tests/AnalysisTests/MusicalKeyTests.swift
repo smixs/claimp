@@ -61,3 +61,28 @@ func garbageNamesReturnNil() {
     #expect(MusicalKey(camelot: "8C") == nil)
     #expect(MusicalKey(camelot: "") == nil)
 }
+
+@Test("Нотная запись из тега разбирается обратно в тональность")
+func shortNameRoundTrip() {
+    for tonic in MusicalKey.Tonic.allCases {
+        for mode in MusicalKey.Mode.allCases {
+            let key = MusicalKey(tonic: tonic, mode: mode)
+            #expect(MusicalKey(shortName: key.shortName) == key)
+        }
+    }
+    // Бемоли пишут другие программы; энгармоника сворачивается в тот же класс.
+    #expect(MusicalKey(shortName: "Bbm") == MusicalKey(tonic: .aSharp, mode: .minor))
+    #expect(MusicalKey(shortName: " Ab ") == MusicalKey(tonic: .gSharp, mode: .major))
+}
+
+@Test("Тег понимается и как Camelot, и как нота; мусор - nil")
+func tagKeyAcceptsBothNotations() {
+    #expect(MusicalKey(tag: "8A") == MusicalKey(tonic: .a, mode: .minor))
+    #expect(MusicalKey(tag: "Am") == MusicalKey(tonic: .a, mode: .minor))
+    #expect(MusicalKey(tag: "F#m") == MusicalKey(tonic: .fSharp, mode: .minor))
+    #expect(MusicalKey(tag: "C") == MusicalKey(tonic: .c, mode: .major))
+    #expect(MusicalKey(shortName: "Hm") == nil)
+    #expect(MusicalKey(shortName: "") == nil)
+    #expect(MusicalKey(shortName: "C##") == nil)
+    #expect(MusicalKey(tag: "not a key") == nil)
+}
