@@ -1,4 +1,5 @@
 import AppKit
+import Playback
 
 /// Фейдер громкости (эталон владельца research/owner-ref-fader-knob.png, DECISIONS 15:34):
 /// подпись VOLUME сверху, тонкая вертикальная дорожка, ручка-капсула с тремя чёрточками,
@@ -121,6 +122,20 @@ final class VolumeControl: NSView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+    }
+
+    /// Колёсико и трекпад над фейдером меняют громкость (решение владельца 2026-09-16):
+    /// вверх громче, вниз тише. Реагирует весь блок - подпись, дорожка и проценты, - а не
+    /// только ручка: событие приходит в эту вьюху, слайдер его не перехватывает.
+    /// Шаг и цена точной дельты - токены Theme, кривая та же, что у перетаскивания ручки.
+    override func scrollWheel(with event: NSEvent) {
+        let ticks = event.hasPreciseScrollingDeltas
+            ? Double(event.scrollingDeltaY) / Theme.size.volumeWheelPoints
+            : Double(event.scrollingDeltaY)
+        guard ticks != 0 else { return }
+        slider.doubleValue = VolumeCurve.position(
+            from: slider.doubleValue, ticks: ticks, step: Theme.size.volumeWheelStep)
+        changed()
     }
 
     @objc private func changed() {

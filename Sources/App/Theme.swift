@@ -92,6 +92,10 @@ enum Theme {
         static let volumeTrack: CGFloat = 4
         static let volumeKnobWidth: CGFloat = 14
         static let volumeKnobHeight: CGFloat = 26
+        /// Колёсико над фейдером: один щелчок = 2 % хода; у точного трекпада столько точек
+        /// прокрутки считается одним щелчком.
+        static let volumeWheelStep: Double = 0.02
+        static let volumeWheelPoints: Double = 10
         /// Чёрточки на ручке: отступ от краёв капсулы, толщина и просвет между ними.
         static let volumeGripInset: CGFloat = 4
         static let volumeGripThickness: CGFloat = 1

@@ -50,6 +50,16 @@ public struct WaveformStyle: Sendable, Equatable {
         }
     }
 
+    /// Геометрия блока волны в точках. Те же правила, что у палитры: числа живут только здесь,
+    /// в отрисовке и в окне литералов нет. Высота самой волны берётся от процента из настроек
+    /// (`WaveformView.waveHeight(percent:)`), полоса времени от процента не зависит.
+    public enum Geometry {
+        /// Высота волны при 100 % (SPEC 4.1: сегодняшние 80 pt - это 80 %).
+        public static let maxWaveHeight: CGFloat = 100
+        /// Полоса с подписями времени под волной (SPEC 4.1).
+        public static let timeStripHeight: CGFloat = 14
+    }
+
     public var low: Color
     public var mid: Color
     public var high: Color

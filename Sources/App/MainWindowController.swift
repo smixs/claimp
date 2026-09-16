@@ -31,6 +31,9 @@ final class MainWindowController {
     /// Причина, по которой не работают лампочки: живёт до выхода, показывается после свежих ошибок.
     private let storeFailure: String?
 
+    /// Высота блока волны: меняется слайдером в настройках без перезапуска.
+    private var waveHeightConstraint: NSLayoutConstraint?
+
     /// Транспорт живёт внутри верхнего блока: обложка занимает всю его высоту.
     private var transport: TransportView { header.transport }
 
@@ -105,9 +108,13 @@ final class MainWindowController {
 
         header.volume.position = Self.loadVolumePosition()
 
-        // Волна T6 со своей полосой времени (80 + 14): заменяет плейсхолдер и ряд времени T4.
+        // Волна T6 со своей полосой времени: высота волны в процентах живёт в настройках
+        // (решение владельца 2026-09-16), освободившееся место забирает плейлист.
         wave.translatesAutoresizingMaskIntoConstraints = false
-        wave.heightAnchor.constraint(equalToConstant: WaveformView.waveHeight + WaveformView.timeStripHeight).isActive = true
+        let waveHeight = wave.heightAnchor.constraint(
+            equalToConstant: WaveformView.blockHeight(percent: SettingsStore.shared.value.waveHeightPercent))
+        waveHeight.isActive = true
+        waveHeightConstraint = waveHeight
         wave.onSeek = { [weak self] fraction in self?.seek(fraction: fraction) }
         stack.addArrangedSubview(wave)
         wave.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -136,7 +143,7 @@ final class MainWindowController {
         search.drawsBackground = false
         search.focusRingType = .none
         search.placeholderAttributedString = NSAttributedString(
-            string: "Поиск",
+            string: Strings.search,
             attributes: [.foregroundColor: Theme.text.secondary, .font: Theme.font.search]
         )
         search.font = Theme.font.search
@@ -186,7 +193,8 @@ final class MainWindowController {
         do {
             return (try PlayedStore.makeDefault(), nil)
         } catch {
-            let reason = "Лампочки и порядок не сохраняются: база не открылась (\(error.localizedDescription))"
+            let reason = Strings.Error.storeUnavailable(
+                Strings.Error.storeNotOpened(error.localizedDescription))
             FileHandle.standardError.write(Data("Claimp: \(reason)\n".utf8))
             return (nil, reason)
         }
@@ -209,7 +217,7 @@ final class MainWindowController {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = "Открыть"
+        panel.prompt = Strings.openPanelPrompt
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK else { return }
             self?.loadURLs(panel.urls)
@@ -294,7 +302,8 @@ final class MainWindowController {
             guard let self else { return }
             guard let store = self.store else {
                 // Клик по лампочке без базы - не тихий пропуск: причина снова идёт в статусную строку.
-                self.showError(self.storeFailure ?? "Лампочки и порядок не сохраняются: база недоступна")
+                self.showError(
+                    self.storeFailure ?? Strings.Error.storeUnavailable(Strings.Error.storeMissing))
                 return
             }
             do {
@@ -338,12 +347,12 @@ final class MainWindowController {
             case .skipped(let url, let reason):
                 self.playlist.stopAnalysing(url: url)
                 FileHandle.standardError.write(
-                    Data("Claimp: анализ пропущен - \(url.lastPathComponent): \(reason)\n".utf8))
+                    Data("Claimp: \(Strings.Error.analysisSkipped(url.lastPathComponent, reason: reason))\n".utf8))
             case .failed(let url, let reason):
                 self.playlist.stopAnalysing(url: url)
                 self.analysisErrors += 1
                 FileHandle.standardError.write(
-                    Data("Claimp: анализ не удался - \(url.lastPathComponent): \(reason)\n".utf8))
+                    Data("Claimp: \(Strings.Error.analysisFailed(url.lastPathComponent, reason: reason))\n".utf8))
                 self.refreshChrome()
             case .cancelled(let url):
                 self.playlist.stopAnalysing(url: url)
@@ -367,6 +376,7 @@ final class MainWindowController {
         let settings = SettingsStore.shared.value
         playlist.applySettings()
         transport.isShuffling = settings.shuffle
+        waveHeightConstraint?.constant = WaveformView.blockHeight(percent: settings.waveHeightPercent)
         wave.style = Self.waveStyle(for: settings)
         analysisRunner.apply(settings: settings)
     }
@@ -417,7 +427,7 @@ final class MainWindowController {
     /// а не подбирается константой. Fail fast: окно .titled без кнопки - выравнивать не по чему.
     private static func align(logoCenter: NSLayoutConstraint, toButtonsOf window: NSWindow, in root: NSView) {
         guard let close = window.standardWindowButton(.closeButton) else {
-            fatalError("окно без кнопки закрытия: логотип не по чему выравнивать")
+            fatalError("window without a close button: nothing to align the logo to")
         }
         let button = close.convert(close.bounds, to: root)
         logoCenter.constant = root.isFlipped ? button.midY : root.bounds.maxY - button.midY
@@ -545,15 +555,15 @@ final class MainWindowController {
 
     /// Ошибки базы раньше жили только в NSLog: владелец не знал, что лампочки не сохраняются.
     private func reportDatabase(_ error: Error) {
-        showError("Лампочки и порядок не сохраняются: \(error.localizedDescription)")
+        showError(Strings.Error.storeUnavailable(error.localizedDescription))
     }
 
     private static func message(for error: PlayerEngineError) -> String {
         switch error {
         case .cannotOpen(let url):
-            return "Ошибка воспроизведения: \(url.lastPathComponent)"
+            return Strings.Error.playbackCannotOpen(url.lastPathComponent)
         case .notLoaded:
-            return "Ошибка воспроизведения: трек не загружен"
+            return Strings.Error.playbackNotLoaded
         }
     }
 
@@ -561,19 +571,19 @@ final class MainWindowController {
     private static func message(for error: WaveformError, file: String) -> String {
         switch error {
         case .cannotOpen:
-            return "Волна не открылась: \(file)"
+            return Strings.Error.waveCannotOpen(file)
         case .cannotRead(_, let frame):
-            return "Волна оборвалась: \(file), фрейм \(frame)"
+            return Strings.Error.waveCannotRead(file, frame: frame)
         case .badCache:
-            return "Кэш волны испорчен: \(file)"
+            return Strings.Error.waveBadCache(file)
         case .cancelled:
-            return "Волна: анализ отменён"
+            return Strings.Error.waveCancelled
         }
     }
 
     private func showPlaybackError(url: URL?, error: Error) {
         let alert = NSAlert()
-        alert.messageText = "Не удалось воспроизвести"
+        alert.messageText = Strings.Error.playbackFailedTitle
         alert.informativeText = "\(url?.path ?? "—")\n\(error.localizedDescription)"
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)
@@ -597,7 +607,7 @@ final class MainWindowController {
                 let data = try await self.analyzer.analyze(url: track.url)
                 try Task.checkCancellation()
                 self.wave.data = data
-                NSLog("T5 wave ready: %@ за %.2f c", track.url.lastPathComponent, Date().timeIntervalSince(started))
+                NSLog("T5 wave ready: %@ in %.2f s", track.url.lastPathComponent, Date().timeIntervalSince(started))
             } catch let error as WaveformError {
                 // Отмена - не ошибка: владелец выбрал другой трек, волна уедет за новым.
                 guard error != .cancelled else { return }
@@ -605,7 +615,8 @@ final class MainWindowController {
             } catch is CancellationError {
                 return
             } catch {
-                self.showError("Волна не посчиталась: \(track.url.lastPathComponent) (\(error.localizedDescription))")
+                self.showError(Strings.Error.waveFailed(
+                    track.url.lastPathComponent, reason: error.localizedDescription))
             }
         }
     }
@@ -675,8 +686,7 @@ final class MainWindowController {
             statusLabel.textColor = Theme.text.danger
         } else if analysisErrors > 0 {
             // Ошибки разбора не прячем: счётчик виден, подробности - в stderr.
-            let word = RussianCount.word(analysisErrors, "ошибка", "ошибки", "ошибок")
-            statusLabel.stringValue = "\(playlist.statusText) · анализ: \(analysisErrors) \(word)"
+            statusLabel.stringValue = Strings.analysisErrors(analysisErrors, summary: playlist.statusText)
             statusLabel.textColor = Theme.text.danger
         } else {
             statusLabel.stringValue = playlist.statusText

@@ -117,7 +117,8 @@ final class AnalysisRunner {
             switch try await analyzer.analyze(url: url) {
             case .skippedTooLong(let duration):
                 let minutes = Int((duration / 60).rounded())
-                return .skipped(url, reason: "трек \(minutes) мин, длиннее порога анализа")
+                return .skipped(
+                    url, reason: "track is \(minutes) min, longer than the analysis limit")
             case .analyzed(let analysis):
                 let key = analysis.key?.camelot
                 try store?.saveAnalysis(

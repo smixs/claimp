@@ -121,7 +121,9 @@ final class PlaylistController: NSObject {
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = true
         tableView.allowsEmptySelection = true
-        tableView.allowsColumnReordering = false
+        // Порядок колонок владелец тянет рукой (решение 2026-09-16); что можно двигать,
+        // решает делегат, а порядок помнит то же автосохранение, что и ширины.
+        tableView.allowsColumnReordering = true
         tableView.gridStyleMask = []
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.backgroundColor = Theme.background.base
@@ -315,8 +317,7 @@ final class PlaylistController: NSObject {
         guard let row = model.displayed.firstIndex(where: { $0.url == url }) else { return }
         let track = model.displayed[row]
         for column in [PlaylistColumn.bpm, PlaylistColumn.key] {
-            guard let index = tableView.tableColumns.firstIndex(
-                where: { $0.identifier.rawValue == column.rawValue }),
+            guard let index = columnIndex(of: column),
                 let cell = tableView.view(atColumn: index, row: row, makeIfNecessary: false)
                     as? PlaylistTextCell
             else { continue }
@@ -325,12 +326,21 @@ final class PlaylistController: NSObject {
         }
     }
 
+    /// Ячейка ищется по идентификатору колонки, а не по нулевому индексу: порядок колонок
+    /// владелец меняет рукой.
     private func refreshLamp(url: URL) {
         guard let row = model.displayed.firstIndex(where: { $0.url == url }),
-              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? PlayedDotCell,
+              let column = columnIndex(of: .played),
+              let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) as? PlayedDotCell,
               let track = model.displayed[safe: row]
         else { return }
         cell.setLamp(on: track.isPlayed)
+    }
+
+    /// Текущее место колонки в таблице: после перестановки заголовков оно уже не совпадает
+    /// с порядком `PlaylistColumn.allCases`.
+    private func columnIndex(of column: PlaylistColumn) -> Int? {
+        tableView.tableColumns.firstIndex { $0.identifier.rawValue == column.rawValue }
     }
 
     // MARK: - Drag-out (главный пункт задачи)
@@ -399,12 +409,13 @@ final class PlaylistController: NSObject {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
         let analyze = NSMenuItem(
-            title: urls.count == 1 ? "Проанализировать трек" : "Проанализировать треки",
+            title: Strings.analyzeTracks(count: urls.count),
             action: #selector(analyzeSelected), keyEquivalent: "")
         analyze.target = self
         menu.addItem(analyze)
         let delete = NSMenuItem(
-            title: "Удалить из плейлиста", action: #selector(deleteSelectedFromMenu), keyEquivalent: "")
+            title: Strings.removeFromPlaylist, action: #selector(deleteSelectedFromMenu),
+            keyEquivalent: "")
         delete.target = self
         menu.addItem(delete)
     }
@@ -429,6 +440,15 @@ final class PlaylistController: NSObject {
         // Клик по лампочке не меняет выделение строки.
         let clicked = tableView.tableColumns[safe: tableView.clickedColumn]?.identifier.rawValue
         return clicked != PlaylistColumn.played.rawValue
+    }
+
+    /// Перетаскивание заголовка: любая колонка едет на любое место правее лампочки.
+    /// Саму лампочку не двигают и на её место никого не пускают - она всегда первая.
+    @objc func tableView(
+        _ tableView: NSTableView, shouldReorderColumn columnIndex: Int, toColumn newIndex: Int
+    ) -> Bool {
+        guard let key = tableView.tableColumns[safe: columnIndex]?.identifier.rawValue else { return false }
+        return PlaylistColumns.canReorder(key, toIndex: newIndex)
     }
 
     @objc func tableViewSelectionDidChange(_ notification: Notification) {

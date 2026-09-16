@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import Foundation
 import PropertyBased
 import Testing
@@ -128,4 +129,26 @@ func viewWithoutDataStaysEmpty() {
     view.layoutSubtreeIfNeeded()
 
     #expect(view.data?.columns.count == WaveformData.columnCount)
+}
+
+// MARK: - Высота блока волны из настроек (⌘, → Волна)
+
+@MainActor
+@Test("Высота волны из настроек: 80 % - сегодняшняя, 20 % вчетверо тоньше, 100 % на четверть выше")
+func waveHeightFollowsSettingsPercent() {
+    let base = WaveformView.waveHeight(percent: WaveHeight.default)
+
+    #expect(WaveformView.waveHeight(percent: 20) == base / 4)
+    #expect(WaveformView.waveHeight(percent: 100) == base * 1.25)
+    // Полоса времени от процента не зависит: тоньше становится только сама волна.
+    #expect(WaveformView.blockHeight(percent: 20) == base / 4 + WaveformView.timeStripHeight)
+}
+
+@MainActor
+@Test("Негодный процент высоты волны прижимается к границе, а не схлопывает блок")
+func waveHeightClampsGarbagePercent() {
+    #expect(WaveformView.waveHeight(percent: 0)
+        == WaveformView.waveHeight(percent: WaveHeight.range.lowerBound))
+    #expect(WaveformView.waveHeight(percent: 500)
+        == WaveformView.waveHeight(percent: WaveHeight.range.upperBound))
 }

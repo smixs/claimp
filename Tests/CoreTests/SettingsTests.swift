@@ -25,7 +25,8 @@ func settingsRoundTripThroughDefaults() {
         analysisMaxMinutes: 20,
         keyFormat: .both,
         wavePalette: .single,
-        waveUnplayedBrightness: 0.7)
+        waveUnplayedBrightness: 0.7,
+        waveHeightPercent: 40)
 
     settings.write(to: defaults)
 
@@ -39,6 +40,7 @@ func settingsNormalizeGarbageFromDefaults() {
     defaults.set("500-600", forKey: SettingsKey.tempoRange)
     defaults.set(0, forKey: SettingsKey.analysisMaxMinutes)
     defaults.set(42.0, forKey: SettingsKey.waveUnplayedBrightness)
+    defaults.set(500, forKey: SettingsKey.waveHeightPercent)
 
     let settings = AppSettings(reading: defaults)
 
@@ -46,6 +48,7 @@ func settingsNormalizeGarbageFromDefaults() {
     #expect(settings.tempoRange == AppSettings.default.tempoRange)
     #expect(settings.analysisMaxMinutes == AppSettings.minutesRange.lowerBound)
     #expect(settings.waveUnplayedBrightness == WaveBrightness.range.upperBound)
+    #expect(settings.waveHeightPercent == WaveHeight.range.upperBound)
 }
 
 @Test("Дефолт: автоанализ выключен - пустые BPM и тональность остаются пустыми до правого клика")
@@ -165,4 +168,14 @@ func resetClearsStoredKeys() {
     #expect(store.value == .default)
     #expect(defaults.object(forKey: SettingsKey.playlistFontSize) == nil)
     #expect(defaults.object(forKey: SettingsKey.hiddenColumns) == nil)
+}
+
+@Test("Порядок колонок тянется рукой, но лампочка остаётся первой")
+func lampStaysFirstWhenColumnsAreReordered() {
+    // Любую обычную колонку можно утащить на любое место правее лампочки.
+    #expect(PlaylistColumns.canReorder("year", toIndex: 2) == true)
+    #expect(PlaylistColumns.canReorder("year", toIndex: 1) == true)
+    // Но не на место лампочки, и саму лампочку не трогают.
+    #expect(PlaylistColumns.canReorder("year", toIndex: 0) == false)
+    #expect(PlaylistColumns.canReorder("played", toIndex: 3) == false)
 }

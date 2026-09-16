@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import Foundation
 
 /// Волна трека: симметричные столбики от центральной оси, цвет каждого - смесь трёх полос.
@@ -7,10 +8,20 @@ import Foundation
 /// отменён (решение владельца 15:36); файл тащат за строку плейлиста и за обложку в шапке.
 @MainActor
 public final class WaveformView: NSView {
-    /// Высота самой волны (SPEC 4.1).
-    public static let waveHeight: CGFloat = 80
-    /// Полоса с подписями времени под волной (SPEC 4.1).
-    public static let timeStripHeight: CGFloat = 14
+    /// Полоса с подписями времени под волной; сами числа - в `WaveformStyle.Geometry`.
+    public static var timeStripHeight: CGFloat { WaveformStyle.Geometry.timeStripHeight }
+
+    /// Высота самой волны по проценту из настроек (⌘, → Волна); процент вне 20…100
+    /// прижимается к границе.
+    public static func waveHeight(percent: Int) -> CGFloat {
+        WaveformStyle.Geometry.maxWaveHeight * CGFloat(WaveHeight.clamp(percent))
+            / CGFloat(WaveHeight.range.upperBound)
+    }
+
+    /// Высота всего блока: волна плюс полоса времени под ней.
+    public static func blockHeight(percent: Int) -> CGFloat {
+        waveHeight(percent: percent) + timeStripHeight
+    }
 
     /// Стиль волны: цвета полос, компрессия, сглаживание, яркости, курсор. Все числа - только здесь
     /// и в дефолте `WaveformStyle`: в отрисовке литералов нет.
@@ -70,7 +81,7 @@ public final class WaveformView: NSView {
     }
 
     public override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: Self.waveHeight + Self.timeStripHeight)
+        NSSize(width: NSView.noIntrinsicMetric, height: Self.blockHeight(percent: WaveHeight.default))
     }
 
     public override var isOpaque: Bool { true }

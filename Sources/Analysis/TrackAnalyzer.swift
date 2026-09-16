@@ -14,7 +14,7 @@ public struct TrackAnalysisFailure: Error, Sendable, CustomStringConvertible {
     }
 
     public var description: String {
-        "анализ не удался: \(url.lastPathComponent) (\(reason))"
+        "analysis failed: \(url.lastPathComponent) (\(reason))"
     }
 }
 
@@ -43,8 +43,8 @@ public actor TrackAnalyzer {
         limit: Int = TrackAnalyzer.concurrencyLimit,
         maxDuration: TimeInterval = TrackAnalyzer.maxDuration
     ) {
-        precondition(limit > 0, "лимит параллелизма должен быть больше нуля")
-        precondition(maxDuration > 0, "порог длины должен быть больше нуля")
+        precondition(limit > 0, "concurrency limit must be greater than zero")
+        precondition(maxDuration > 0, "duration limit must be greater than zero")
         self.range = range
         self.limit = limit
         self.maxDuration = maxDuration
@@ -71,7 +71,7 @@ public actor TrackAnalyzer {
         let asset = AVURLAsset(url: url)
         let duration = try await CMTimeGetSeconds(asset.load(.duration))
         guard duration.isFinite, duration > 0 else {
-            throw TrackAnalysisFailure(url: url, reason: "длительность файла не читается")
+            throw TrackAnalysisFailure(url: url, reason: "cannot read file duration")
         }
         guard duration <= maxDuration else {
             return .skippedTooLong(duration: duration)
@@ -101,7 +101,7 @@ public actor TrackAnalyzer {
             appleTonicName: signature.tonic.rawValue, modeName: signature.mode.rawValue)
         else {
             throw TrackAnalysisFailure(
-                url: url, reason: "неизвестная тоника фреймворка: \(signature.tonic.rawValue)")
+                url: url, reason: "unknown framework tonic: \(signature.tonic.rawValue)")
         }
         return key
     }

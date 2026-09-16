@@ -22,6 +22,6 @@ enum AppResources {
                 return url
             }
         }
-        fatalError("\(name).\(ext) не найден: \(bundleName) отсутствует в \(candidates.map(\.path))")
+        fatalError("\(name).\(ext) not found: no \(bundleName) in \(candidates.map(\.path))")
     }
 }

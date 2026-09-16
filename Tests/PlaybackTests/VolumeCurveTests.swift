@@ -30,6 +30,24 @@ struct VolumeCurveTests {
         #expect(VolumeCurve.gain(forPosition: VolumeCurve.silenceThreshold) > 0)
     }
 
+    @Test("Колёсико над фейдером: вверх громче, вниз тише, шаг ровно по щелчкам")
+    func wheelTicksMovePositionByStep() {
+        // Один щелчок вверх при шаге 2 % - это ровно 2 % хода вверх.
+        #expect(VolumeCurve.position(from: 0.5, ticks: 1, step: 0.02) == 0.52)
+        // Дробная дельта трекпада идёт пропорционально тем же шагом.
+        #expect(VolumeCurve.position(from: 0.5, ticks: 0.5, step: 0.02) == 0.51)
+        // Вниз - тише.
+        #expect(VolumeCurve.position(from: 0.5, ticks: -3, step: 0.02) == 0.44)
+    }
+
+    @Test("Колёсико не выкручивает позицию за края хода и не ломается на мусоре")
+    func wheelPositionStaysInRange() {
+        #expect(VolumeCurve.position(from: 0.99, ticks: 10, step: 0.02) == 1)
+        #expect(VolumeCurve.position(from: 0.01, ticks: -10, step: 0.02) == 0)
+        // Мусорная дельта оставляет громкость как была, а не обнуляет её.
+        #expect(VolumeCurve.position(from: 0.5, ticks: .nan, step: 0.02) == 0.5)
+    }
+
     @Test("Вход вне 0…1 и мусор клампятся, а не уезжают наружу")
     func inputOutsideRangeIsClamped() {
         #expect(VolumeCurve.gain(forPosition: -0.5) == 0)

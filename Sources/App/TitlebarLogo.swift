@@ -10,7 +10,7 @@ enum TitlebarLogo {
     static func makeView() -> NSImageView {
         let url = AppResources.url(forResource: "claimp-logo", withExtension: "svg")
         guard let image = NSImage(contentsOf: url), image.size.height > 0 else {
-            fatalError("claimp-logo.svg не читается как изображение: \(url.path)")
+            fatalError("claimp-logo.svg is not readable as an image: \(url.path)")
         }
         let logo = NSImageView(image: image)
         logo.imageScaling = .scaleProportionallyUpOrDown

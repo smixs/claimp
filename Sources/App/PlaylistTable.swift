@@ -10,15 +10,15 @@ enum PlaylistColumn: String, CaseIterable {
     /// Заголовки коротко: девять колонок должны влезать в минимальные 420 pt окна.
     var headerTitle: String {
         switch self {
-        case .played: return "●"
-        case .number: return "#"
-        case .title: return "Название"
-        case .artist: return "Исполнитель"
-        case .year: return "Год"
-        case .duration: return "Длит."
-        case .bitrate: return "kbps"
-        case .bpm: return "BPM"
-        case .key: return "Key"
+        case .played: return Strings.Column.played
+        case .number: return Strings.Column.number
+        case .title: return Strings.Column.title
+        case .artist: return Strings.Column.artist
+        case .year: return Strings.Column.year
+        case .duration: return Strings.Column.duration
+        case .bitrate: return Strings.Column.bitrate
+        case .bpm: return Strings.Column.bpm
+        case .key: return Strings.Column.key
         }
     }
 

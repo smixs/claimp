@@ -16,7 +16,7 @@ public struct TempoRange: Sendable, Equatable {
 
     /// Граница обязана быть положительным конечным числом: иначе приведение не сходится.
     public init(lower: Double) {
-        precondition(lower.isFinite && lower > 0, "нижняя граница диапазона темпа должна быть > 0")
+        precondition(lower.isFinite && lower > 0, "tempo range lower bound must be > 0")
         self.lower = lower
     }
 

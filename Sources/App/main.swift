@@ -63,27 +63,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(NSMenuItem(title: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(
+            title: Strings.menuAbout(appName),
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Настройки…", action: #selector(showSettings(_:)), keyEquivalent: ","))
+        appMenu.addItem(NSMenuItem(
+            title: Strings.menuSettings, action: #selector(showSettings(_:)), keyEquivalent: ","))
         appMenu.addItem(.separator())
-        appMenu.addItem(NSMenuItem(title: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(
+            title: Strings.menuQuit(appName),
+            action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
         let fileItem = NSMenuItem()
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(NSMenuItem(title: "Open…", action: #selector(openDocument(_:)), keyEquivalent: "o"))
+        let fileMenu = NSMenu(title: Strings.menuFile)
+        fileMenu.addItem(NSMenuItem(
+            title: Strings.menuOpen, action: #selector(openDocument(_:)), keyEquivalent: "o"))
         fileItem.submenu = fileMenu
         mainMenu.addItem(fileItem)
 
         let editItem = NSMenuItem()
-        let editMenu = NSMenu(title: "Edit")
+        let editMenu = NSMenu(title: Strings.menuEdit)
         for (title, action, key) in [
-            ("Cut", #selector(NSText.cut(_:)), "x"),
-            ("Copy", #selector(NSText.copy(_:)), "c"),
-            ("Paste", #selector(NSText.paste(_:)), "v"),
-            ("Select All", #selector(NSText.selectAll(_:)), "a"),
+            (Strings.menuCut, #selector(NSText.cut(_:)), "x"),
+            (Strings.menuCopy, #selector(NSText.copy(_:)), "c"),
+            (Strings.menuPaste, #selector(NSText.paste(_:)), "v"),
+            (Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a"),
         ] as [(String, Selector, String)] {
             editMenu.addItem(NSMenuItem(title: title, action: action, keyEquivalent: key))
         }

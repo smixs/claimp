@@ -27,6 +27,8 @@ public struct AppSettings: Equatable, Sendable {
     public var wavePalette: WavePalette
     /// Яркость несыгранной части волны, 0…1.
     public var waveUnplayedBrightness: Double
+    /// Высота блока волны в процентах от максимума (решение владельца 2026-09-16).
+    public var waveHeightPercent: Int
 
     public init(
         hiddenColumns: Set<String>,
@@ -37,7 +39,8 @@ public struct AppSettings: Equatable, Sendable {
         analysisMaxMinutes: Int,
         keyFormat: KeyFormat,
         wavePalette: WavePalette,
-        waveUnplayedBrightness: Double
+        waveUnplayedBrightness: Double,
+        waveHeightPercent: Int
     ) {
         self.hiddenColumns = hiddenColumns
         self.playlistFontSize = PlaylistFont.clamp(playlistFontSize)
@@ -48,6 +51,7 @@ public struct AppSettings: Equatable, Sendable {
         self.keyFormat = keyFormat
         self.wavePalette = wavePalette
         self.waveUnplayedBrightness = Self.clampBrightness(waveUnplayedBrightness)
+        self.waveHeightPercent = WaveHeight.clamp(waveHeightPercent)
     }
 
     /// Дефолты владельца (DECISIONS 2026-09-15 19:00 и 19:49, 2026-09-16): все колонки видны,
@@ -63,7 +67,8 @@ public struct AppSettings: Equatable, Sendable {
         analysisMaxMinutes: 15,
         keyFormat: .camelot,
         wavePalette: .spectrum,
-        waveUnplayedBrightness: WaveBrightness.default)
+        waveUnplayedBrightness: WaveBrightness.default,
+        waveHeightPercent: WaveHeight.default)
 
     /// Порог длины: меньше минуты не бывает, дольше суток бессмысленно.
     public static let minutesRange: ClosedRange<Int> = 1...60
@@ -103,7 +108,8 @@ public enum TempoRangePreset: String, CaseIterable, Sendable {
     public var title: String { rawValue }
 }
 
-/// Как показывать тональность в колонке Key.
+/// Как показывать тональность в колонке Key. Подписи вариантов живут в интерфейсе
+/// (`Strings.Settings`): Core интерфейсных текстов не держит.
 public enum KeyFormat: String, CaseIterable, Sendable {
     /// 8A - как у Serato и Rekordbox.
     case camelot
@@ -111,27 +117,12 @@ public enum KeyFormat: String, CaseIterable, Sendable {
     case note
     /// 8A · Am.
     case both
-
-    public var title: String {
-        switch self {
-        case .camelot: return "Camelot (8A)"
-        case .note: return "Нота (Am)"
-        case .both: return "Оба (8A · Am)"
-        }
-    }
 }
 
-/// Палитра волны: спектральная по полосам частот или одноцветная.
+/// Палитра волны: спектральная по полосам частот или одноцветная. Подписи - в `Strings.Settings`.
 public enum WavePalette: String, CaseIterable, Sendable {
     case spectrum
     case single
-
-    public var title: String {
-        switch self {
-        case .spectrum: return "Спектр"
-        case .single: return "Одноцветная"
-        }
-    }
 }
 
 /// Границы яркости несыгранной части волны. Дефолт совпадает с `WaveformStyle.default`
@@ -140,6 +131,19 @@ public enum WaveBrightness {
     public static let range: ClosedRange<Double> = 0.1...1
     public static let `default`: Double = 0.45
     public static let step: Double = 0.05
+}
+
+/// Высота блока волны в процентах (решение владельца 2026-09-16): сегодняшняя высота - 80 %,
+/// максимум 100 % (на четверть выше), минимум 20 % (вчетверо тоньше). Сама высота в точках
+/// считается в модуле Waveform: размеры живут там, здесь только диапазон настройки.
+public enum WaveHeight {
+    public static let range: ClosedRange<Int> = 20...100
+    public static let `default`: Int = 80
+
+    /// Процент из хранилища: вне диапазона прижимается к границе.
+    public static func clamp(_ value: Int) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
 }
 
 /// Кегль плейлиста и производные от него размеры. Чистые функции: настройка держит одно число,
@@ -203,6 +207,13 @@ public enum PlaylistColumns {
     public static func canHide(_ key: String) -> Bool {
         !pinned.contains(key)
     }
+
+    /// Порядок колонок владелец меняет перетаскиванием заголовка (решение владельца 2026-09-16).
+    /// Закреплённые колонки стоят в начале и остаются там: лампочку не двигают и никого перед
+    /// ней не пропускают, остальные едут куда угодно.
+    public static func canReorder(_ key: String, toIndex index: Int) -> Bool {
+        !pinned.contains(key) && index >= pinned.count
+    }
 }
 
 /// Ключи хранения. Одно место: разъезд строки в двух файлах даёт настройку, которая
@@ -218,11 +229,12 @@ public enum SettingsKey {
     public static let keyFormat = prefix + "analysis.keyFormat"
     public static let wavePalette = prefix + "wave.palette"
     public static let waveUnplayedBrightness = prefix + "wave.unplayedBrightness"
+    public static let waveHeightPercent = prefix + "wave.height"
 
     /// Все ключи настроек: по ним же идёт сброс.
     public static let all = [
         hiddenColumns, playlistFontSize, autoAnalyze, shuffle, tempoRange,
-        analysisMaxMinutes, keyFormat, wavePalette, waveUnplayedBrightness,
+        analysisMaxMinutes, keyFormat, wavePalette, waveUnplayedBrightness, waveHeightPercent,
     ]
 }
 
@@ -244,7 +256,9 @@ extension AppSettings {
             keyFormat: Self.read(defaults, SettingsKey.keyFormat) ?? fallback.keyFormat,
             wavePalette: Self.read(defaults, SettingsKey.wavePalette) ?? fallback.wavePalette,
             waveUnplayedBrightness: defaults.object(forKey: SettingsKey.waveUnplayedBrightness) as? Double
-                ?? fallback.waveUnplayedBrightness)
+                ?? fallback.waveUnplayedBrightness,
+            waveHeightPercent: defaults.object(forKey: SettingsKey.waveHeightPercent) as? Int
+                ?? fallback.waveHeightPercent)
     }
 
     /// Запись. Пишутся все ключи разом: частичная запись оставила бы половину настроек от прошлой версии.
@@ -258,6 +272,7 @@ extension AppSettings {
         defaults.set(keyFormat.rawValue, forKey: SettingsKey.keyFormat)
         defaults.set(wavePalette.rawValue, forKey: SettingsKey.wavePalette)
         defaults.set(waveUnplayedBrightness, forKey: SettingsKey.waveUnplayedBrightness)
+        defaults.set(waveHeightPercent, forKey: SettingsKey.waveHeightPercent)
     }
 
     private static func read<T: RawRepresentable>(_ defaults: UserDefaults, _ key: String) -> T?
@@ -300,7 +315,8 @@ public final class SettingsStore {
             analysisMaxMinutes: draft.analysisMaxMinutes,
             keyFormat: draft.keyFormat,
             wavePalette: draft.wavePalette,
-            waveUnplayedBrightness: draft.waveUnplayedBrightness)
+            waveUnplayedBrightness: draft.waveUnplayedBrightness,
+            waveHeightPercent: draft.waveHeightPercent)
         guard normalized != value else { return }
         value = normalized
         normalized.write(to: defaults)

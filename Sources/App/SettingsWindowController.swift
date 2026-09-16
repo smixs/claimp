@@ -1,10 +1,10 @@
 import AppKit
 import Core
 
-/// Окно настроек (⌘, и пункт «Claimp → Настройки…»).
+/// Окно настроек (⌘, и пункт «Claimp → Settings…»).
 ///
-/// Вкладок нет - одна колонка групп (решение владельца 15.09 19:49): Плейлист, Анализ, Волна,
-/// Общее. Стиль плоский, как у главного окна: цвета, кегли и размеры - только токены `Theme`.
+/// Вкладок нет - одна колонка групп (решение владельца 15.09 19:49): Playlist, Analysis,
+/// Waveform, General. Стиль плоский, как у главного окна: цвета, кегли и размеры - только токены `Theme`.
 /// Логики приложения здесь нет: контролы пишут значения в `SettingsStore`, применяют их
 /// подписчики нотификации.
 @MainActor
@@ -26,6 +26,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let palettePopup = NSPopUpButton()
     private let brightnessSlider = NSSlider()
     private let brightnessValue = NSTextField(labelWithString: "")
+    private let waveHeightSlider = NSSlider()
+    private let waveHeightValue = NSTextField(labelWithString: "")
 
     init(store: SettingsStore = .shared) {
         self.store = store
@@ -48,10 +50,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         Theme.fill(content, color: Theme.background.base)
 
         let stack = NSStackView(views: [
-            group("Плейлист", rows: playlistRows()),
-            group("Анализ", rows: analysisRows()),
-            group("Волна", rows: waveRows()),
-            group("Общее", rows: [resetRow()]),
+            group(Strings.Settings.groupPlaylist, rows: playlistRows()),
+            group(Strings.Settings.groupAnalysis, rows: analysisRows()),
+            group(Strings.Settings.groupWaveform, rows: waveRows()),
+            group(Strings.Settings.groupGeneral, rows: [resetRow()]),
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -72,7 +74,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Настройки"
+        window.title = Strings.Settings.windowTitle
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = Theme.background.base
         window.contentView = content
@@ -112,21 +114,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tint(fontSlider)
 
         return [
-            caption("Видимые колонки. Лампочка «сыграно» видна всегда."),
+            caption(Strings.Settings.visibleColumns),
             checks,
-            slider(fontSlider, title: "Размер шрифта", value: fontValue),
+            slider(fontSlider, title: Strings.Settings.fontSize, value: fontValue),
         ]
     }
 
     private func analysisRows() -> [NSView] {
-        autoAnalyze.title = "Считать BPM и тональность автоматически"
+        autoAnalyze.title = Strings.Settings.autoAnalyze
         autoAnalyze.font = Theme.font.control
         autoAnalyze.target = self
         autoAnalyze.action = #selector(autoAnalyzeToggled)
         tint(autoAnalyze)
 
         fill(tempoPopup, titles: TempoRangePreset.allCases.map(\.title), action: #selector(tempoChanged))
-        fill(keyFormatPopup, titles: KeyFormat.allCases.map(\.title), action: #selector(keyFormatChanged))
+        fill(
+            keyFormatPopup, titles: KeyFormat.allCases.map(Strings.Settings.keyFormatTitle),
+            action: #selector(keyFormatChanged))
 
         minutesSlider.target = self
         minutesSlider.action = #selector(minutesChanged)
@@ -140,14 +144,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         return [
             autoAnalyze,
-            labeled("Диапазон BPM", control: tempoPopup),
-            slider(minutesSlider, title: "Не считать длиннее", value: minutesValue),
-            labeled("Формат тональности", control: keyFormatPopup),
+            labeled(Strings.Settings.tempoRange, control: tempoPopup),
+            slider(minutesSlider, title: Strings.Settings.skipLongerThan, value: minutesValue),
+            labeled(Strings.Settings.keyFormat, control: keyFormatPopup),
         ]
     }
 
     private func waveRows() -> [NSView] {
-        fill(palettePopup, titles: WavePalette.allCases.map(\.title), action: #selector(paletteChanged))
+        fill(
+            palettePopup, titles: WavePalette.allCases.map(Strings.Settings.paletteTitle),
+            action: #selector(paletteChanged))
 
         brightnessSlider.target = self
         brightnessSlider.action = #selector(brightnessChanged)
@@ -156,14 +162,23 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         brightnessSlider.controlSize = .small
         tint(brightnessSlider)
 
+        waveHeightSlider.target = self
+        waveHeightSlider.action = #selector(waveHeightChanged)
+        waveHeightSlider.minValue = Double(WaveHeight.range.lowerBound)
+        waveHeightSlider.maxValue = Double(WaveHeight.range.upperBound)
+        waveHeightSlider.controlSize = .small
+        tint(waveHeightSlider)
+
         return [
-            labeled("Палитра", control: palettePopup),
-            slider(brightnessSlider, title: "Яркость несыгранного", value: brightnessValue),
+            labeled(Strings.Settings.palette, control: palettePopup),
+            slider(brightnessSlider, title: Strings.Settings.unplayedBrightness, value: brightnessValue),
+            slider(waveHeightSlider, title: Strings.Settings.waveHeight, value: waveHeightValue),
         ]
     }
 
     private func resetRow() -> NSView {
-        let button = NSButton(title: "Сбросить настройки", target: self, action: #selector(resetTapped))
+        let button = NSButton(
+            title: Strings.Settings.reset, target: self, action: #selector(resetTapped))
         button.font = Theme.font.control
         button.bezelStyle = .rounded
         return button
@@ -251,15 +266,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             check.state = settings.hiddenColumns.contains(key) ? .off : .on
         }
         fontSlider.doubleValue = settings.playlistFontSize
-        fontValue.stringValue = "\(Int(settings.playlistFontSize)) pt"
+        fontValue.stringValue = Strings.Settings.points(Int(settings.playlistFontSize))
         autoAnalyze.state = settings.autoAnalyze ? .on : .off
         tempoPopup.selectItem(withTitle: settings.tempoRange.title)
         minutesSlider.integerValue = settings.analysisMaxMinutes
-        minutesValue.stringValue = "\(settings.analysisMaxMinutes) мин"
-        keyFormatPopup.selectItem(withTitle: settings.keyFormat.title)
-        palettePopup.selectItem(withTitle: settings.wavePalette.title)
+        minutesValue.stringValue = Strings.Settings.minutes(settings.analysisMaxMinutes)
+        keyFormatPopup.selectItem(withTitle: Strings.Settings.keyFormatTitle(settings.keyFormat))
+        palettePopup.selectItem(withTitle: Strings.Settings.paletteTitle(settings.wavePalette))
         brightnessSlider.doubleValue = settings.waveUnplayedBrightness
-        brightnessValue.stringValue = "\(Int((settings.waveUnplayedBrightness * 100).rounded())) %"
+        brightnessValue.stringValue = Strings.Settings.percent(
+            Int((settings.waveUnplayedBrightness * 100).rounded()))
+        waveHeightSlider.integerValue = settings.waveHeightPercent
+        waveHeightValue.stringValue = Strings.Settings.percent(settings.waveHeightPercent)
     }
 
     // MARK: - Действия
@@ -299,14 +317,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc private func keyFormatChanged(_ sender: NSPopUpButton) {
-        guard let format = KeyFormat.allCases.first(where: { $0.title == sender.titleOfSelectedItem })
+        guard let format = KeyFormat.allCases.first(where: {
+            Strings.Settings.keyFormatTitle($0) == sender.titleOfSelectedItem
+        })
         else { return }
         store.update { $0.keyFormat = format }
         sync()
     }
 
     @objc private func paletteChanged(_ sender: NSPopUpButton) {
-        guard let palette = WavePalette.allCases.first(where: { $0.title == sender.titleOfSelectedItem })
+        guard let palette = WavePalette.allCases.first(where: {
+            Strings.Settings.paletteTitle($0) == sender.titleOfSelectedItem
+        })
         else { return }
         store.update { $0.wavePalette = palette }
         sync()
@@ -319,6 +341,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         sync()
     }
 
+    @objc private func waveHeightChanged(_ sender: NSSlider) {
+        store.update { $0.waveHeightPercent = sender.integerValue }
+        sync()
+    }
+
     @objc private func resetTapped() {
         store.reset()
         sync()
@@ -326,13 +353,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 }
 
 extension PlaylistColumn {
-    /// Подпись колонки в настройках: в заголовке таблицы она укорочена до символа.
+    /// Подпись колонки в настройках: в заголовке таблицы номер укорочен до символа.
     var settingsTitle: String {
-        switch self {
-        case .number: return "# (номер)"
-        case .duration: return "Длит."
-        case .bitrate: return "kbps"
-        default: return headerTitle
-        }
+        self == .number ? Strings.Column.numberInSettings : headerTitle
     }
 }

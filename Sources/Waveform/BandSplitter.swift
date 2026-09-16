@@ -127,7 +127,7 @@ private final class BiquadCascade {
     init(coefficients: [Double]) {
         let sections = coefficients.count / 5
         guard sections > 0, let setup = vDSP_biquad_CreateSetup(coefficients, vDSP_Length(sections)) else {
-            preconditionFailure("vDSP_biquad не принял коэффициенты: \(coefficients)")
+            preconditionFailure("vDSP_biquad rejected the coefficients: \(coefficients)")
         }
         self.setup = setup
         // Состояние: по две задержки на секцию плюс два служебных слова (так требует vDSP_biquad).

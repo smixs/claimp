@@ -101,18 +101,15 @@ func sortTitleArtistPlayed() {
     #expect(TrackSort.sorted(played, by: .played, ascending: false).first?.title == "Silent Shout")
 }
 
-@Test("Статусная строка: склонение и суммарная длительность")
+@Test("Статусная строка по-английски: число треков и суммарная длительность")
 func summaryText() {
     func tracks(_ count: Int, each duration: TimeInterval) -> [Track] {
         (0..<count).map { logicTrack("\($0).mp3", title: "T\($0)", artist: "A", duration: duration) }
     }
-    #expect(PlaylistSummary.text(for: []) == "0 треков / 0:00")
-    #expect(PlaylistSummary.text(for: tracks(1, each: 61)) == "1 трек / 1:01")
-    #expect(PlaylistSummary.text(for: tracks(2, each: 60)) == "2 трека / 2:00")
-    #expect(PlaylistSummary.text(for: tracks(5, each: 60)) == "5 треков / 5:00")
-    #expect(PlaylistSummary.text(for: tracks(11, each: 60)) == "11 треков / 11:00")
-    #expect(PlaylistSummary.text(for: tracks(12, each: 60)) == "12 треков / 12:00")
-    #expect(PlaylistSummary.text(for: tracks(21, each: 60)) == "21 трек / 21:00")
+    #expect(PlaylistSummary.text(for: []) == "0 tracks · 0:00")
+    #expect(PlaylistSummary.text(for: tracks(1, each: 61)) == "1 track · 1:01")
+    #expect(PlaylistSummary.text(for: tracks(2, each: 60)) == "2 tracks · 2:00")
+    #expect(PlaylistSummary.text(for: tracks(21, each: 60)) == "21 tracks · 21:00")
 }
 
 @Test("Статусная строка: три трека на 1:32:41")
@@ -122,7 +119,7 @@ func summaryThreeTracksOverHour() {
         logicTrack("b.mp3", title: "B", artist: "B", duration: 1200),
         logicTrack("c.mp3", title: "C", artist: "C", duration: 761),
     ]
-    #expect(PlaylistSummary.text(for: tracks) == "3 трека / 1:32:41")
+    #expect(PlaylistSummary.text(for: tracks) == "3 tracks · 1:32:41")
 }
 
 

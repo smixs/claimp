@@ -34,6 +34,15 @@ public enum VolumeCurve {
         return clampPosition(1 - decibels / minimumDecibels)
     }
 
+    /// Прокрутка колеса или трекпада над фейдером (решение владельца 2026-09-16): позиция ручки
+    /// смещается на `ticks` щелчков по `step` каждый, вверх (положительный `ticks`) - громче.
+    /// Результат зажат в 0…1; мусорная дельта оставляет позицию как была.
+    public static func position(from current: Double, ticks: Double, step: Double) -> Double {
+        let position = clampPosition(current)
+        guard ticks.isFinite, step.isFinite else { return position }
+        return clampPosition(position + ticks * step)
+    }
+
     private static func clampPosition(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(max(value, 0), 1)

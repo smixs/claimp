@@ -102,23 +102,12 @@ public enum TrackSort {
     }
 }
 
-/// Русское согласование числительного: "1 трек", "2 трека", "5 треков".
-public enum RussianCount {
-    public static func word(_ count: Int, _ one: String, _ few: String, _ many: String) -> String {
-        let lastTwo = abs(count) % 100
-        let last = abs(count) % 10
-        if lastTwo >= 11, lastTwo <= 14 { return many }
-        if last == 1 { return one }
-        if last >= 2, last <= 4 { return few }
-        return many
-    }
-}
-
 public enum PlaylistSummary {
-    /// "12 треков / 6:41:03"; пустой список - "0 треков / 0:00".
+    /// Статусная строка "12 tracks · 6:41:03"; пустой список - "0 tracks · 0:00"
+    /// (интерфейс английский, решение владельца 2026-09-16).
     public static func text(for tracks: [Track]) -> String {
         let total = tracks.reduce(0) { $0 + $1.duration }
-        let word = RussianCount.word(tracks.count, "трек", "трека", "треков")
-        return "\(tracks.count) \(word) / \(formattedDuration(total))"
+        let word = tracks.count == 1 ? "track" : "tracks"
+        return "\(tracks.count) \(word) · \(formattedDuration(total))"
     }
 }

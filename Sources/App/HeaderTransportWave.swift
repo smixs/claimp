@@ -157,7 +157,7 @@ final class TransportIconButton: NSButton {
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) не поддерживается")
+        fatalError("init(coder:) is not supported")
     }
 
     /// Квадрат и только квадрат: стек не должен растягивать зону клика.
