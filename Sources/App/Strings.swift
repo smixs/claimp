@@ -29,6 +29,21 @@ enum Strings {
     static let search = "Search"
     static let openPanelPrompt = "Open"
 
+    // MARK: - Плейлист файлом (PL-2)
+
+    /// Подсказки квадратных кнопок справа от поля Search: подписей у них нет, места в 500 pt мало.
+    static let importPlaylist = "Import playlist…"
+    static let exportPlaylist = "Export playlist…"
+    static let importPlaylistPrompt = "Import"
+    static let exportPlaylistPrompt = "Export"
+    static let exportPlaylistTitle = "Export playlist"
+
+    /// Имя файла в панели сохранения: папка плейлиста плюс расширение формата. Пустое имя папки
+    /// (треки в корне) даёт нейтральное «Playlist» - это подсказка в поле, а не данные.
+    static func exportedPlaylistName(folder: String) -> String {
+        folder.isEmpty || folder == "/" ? "Playlist.m3u8" : "\(folder).m3u8"
+    }
+
     /// Счётчик ошибок разбора в статусной строке: "155 tracks · 9:32:46 · analysis: 2 errors".
     static func analysisErrors(_ count: Int, summary: String) -> String {
         let word = count == 1 ? "error" : "errors"
@@ -128,6 +143,33 @@ enum Strings {
         static func waveFailed(_ file: String, reason: String) -> String {
             "Waveform analysis failed: \(file) (\(reason))"
         }
+
+        /// Плейлист (PL-2): у каждой неудачи своя причина, всё это одна строка в статусной строке.
+        static func playlistHLS(_ file: String) -> String {
+            "Playlist: \(file) is an HLS stream, not a track list"
+        }
+        static func playlistEmpty(_ file: String) -> String { "Playlist: \(file) has no tracks" }
+        static func playlistNoTracks(_ file: String, missing: Int) -> String {
+            "Playlist: none of the \(files(missing)) in \(file) exist"
+        }
+        static func playlistUnreadable(_ file: String, reason: String) -> String {
+            "Playlist: cannot read \(file) (\(reason))"
+        }
+        static func playlistUnwritable(_ file: String, reason: String) -> String {
+            "Playlist: cannot save \(file) (\(reason))"
+        }
+
+        /// Что из файла не доехало до плейлиста: «Playlist: 3 files not found» - ровно эта строка
+        /// при одном лишь отсутствии файлов (спека PL-2), остальное - тот же ряд, продолженный запятой.
+        static func playlistSkipped(missing: Int, unreadable: Int) -> String {
+            var parts: [String] = []
+            if missing > 0 { parts.append("\(files(missing)) not found") }
+            if unreadable > 0 { parts.append("\(files(unreadable)) could not be read") }
+            return "Playlist: " + parts.joined(separator: ", ")
+        }
+
+        /// Одно число - одно слово: «1 file», «3 files».
+        private static func files(_ count: Int) -> String { "\(count) file\(count == 1 ? "" : "s")" }
 
         /// Строки в stderr: их читает не владелец, а тот, кто смотрит лог, но язык один.
         static func analysisSkipped(_ file: String, reason: String) -> String {

@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import Playback
+import UniformTypeIdentifiers
 import Waveform
 
 /// Окно 500×760 (минимум 420×600) по SPEC §4.1. Всё @MainActor, своих очередей нет.
@@ -18,6 +19,14 @@ final class MainWindowController {
     private let wave = WaveformView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let search = NSSearchField()
+    /// Кнопки плейлиста справа от поля Search (PL-2): Import - открыть .m3u/.m3u8, Export - сохранить.
+    /// Квадрат в высоту поля, без подложки и подписи: те же иконки SF Symbols, что и у транспорта.
+    private let importButton = TransportIconButton(
+        symbol: "square.and.arrow.down", side: Theme.size.searchButton, pointSize: Theme.size.searchButtonIcon
+    )
+    private let exportButton = TransportIconButton(
+        symbol: "square.and.arrow.up", side: Theme.size.searchButton, pointSize: Theme.size.searchButtonIcon
+    )
     private let scanner = LibraryScanner()
     private let engine = PlayerEngine()
     private let nowPlaying = NowPlayingBridge()
@@ -160,14 +169,29 @@ final class MainWindowController {
         search.action = #selector(searchChanged)
         searchBacking.addSubview(search)
         searchStrip.addSubview(searchBacking)
+        importButton.toolTip = Strings.importPlaylist
+        importButton.target = self
+        importButton.action = #selector(importPlaylistClicked)
+        exportButton.toolTip = Strings.exportPlaylist
+        exportButton.target = self
+        exportButton.action = #selector(exportPlaylistClicked)
+        searchStrip.addSubview(importButton)
+        searchStrip.addSubview(exportButton)
         NSLayoutConstraint.activate([
             searchBacking.leadingAnchor.constraint(equalTo: searchStrip.leadingAnchor, constant: Theme.spacing.s),
-            searchBacking.trailingAnchor.constraint(equalTo: searchStrip.trailingAnchor, constant: -Theme.spacing.s),
+            // Поиск заканчивается там, где начинаются кнопки: они прижаты к правому краю полосы.
+            searchBacking.trailingAnchor.constraint(
+                equalTo: importButton.leadingAnchor, constant: -Theme.spacing.s),
             searchBacking.topAnchor.constraint(equalTo: searchStrip.topAnchor, constant: Theme.spacing.xs),
             searchBacking.bottomAnchor.constraint(equalTo: searchStrip.bottomAnchor, constant: -Theme.spacing.xs),
             search.leadingAnchor.constraint(equalTo: searchBacking.leadingAnchor, constant: Theme.spacing.s),
             search.trailingAnchor.constraint(equalTo: searchBacking.trailingAnchor, constant: -Theme.spacing.s),
             search.centerYAnchor.constraint(equalTo: searchBacking.centerYAnchor),
+            importButton.trailingAnchor.constraint(
+                equalTo: exportButton.leadingAnchor, constant: -Theme.size.searchButtonGap),
+            exportButton.trailingAnchor.constraint(equalTo: searchStrip.trailingAnchor, constant: -Theme.spacing.s),
+            importButton.centerYAnchor.constraint(equalTo: searchStrip.centerYAnchor),
+            exportButton.centerYAnchor.constraint(equalTo: searchStrip.centerYAnchor),
         ])
         stack.addArrangedSubview(searchStrip)
         searchStrip.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -207,6 +231,7 @@ final class MainWindowController {
         guard !ready, attempt < 120 else {
             probeReport("PROBE ready rows=\(playlist.model.displayed.count) wave=\(wave.data != nil)"
                 + " attempt=\(attempt)")
+            probeExportPlaylist()
             probeColumns()
             probeWaveHeightTicks()
             probeInteractionTicks()
@@ -223,6 +248,17 @@ final class MainWindowController {
         frame.size.width = width
         window.setFrame(frame, display: true)
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Экспорт в прогоне: `CLAIMP_PROBE_EXPORT=<путь>` пишет ровно тот файл, что и кнопка Export.
+    /// Панель у прогона нажать нечем (мыши нет), а сценарий владельца надо проверить целиком:
+    /// файл на диске, потом импорт того же файла в чистой базе (PL-2).
+    private func probeExportPlaylist() {
+        guard let path = ProcessInfo.processInfo.environment["CLAIMP_PROBE_EXPORT"] else { return }
+        let url = URL(fileURLWithPath: path)
+        exportPlaylist(tracks: exportTracks, to: url)
+        probeReport("PROBE export rows=\(exportTracks.count) exists="
+            + "\(FileManager.default.fileExists(atPath: url.path)) path=\(url.path)")
     }
 
     /// Три сценария владельца числами: ужатие крайней колонки, протяжка средней, окно 500→900.
@@ -355,7 +391,14 @@ final class MainWindowController {
     // MARK: - Загрузка извне (дроп, Dock, ⌘O)
 
     /// Дроп заменяет плейлист целиком. Без аудио - плейлист прежний, без падений.
+    /// Файл плейлиста развиливается до сканера: `.m3u`/`.m3u8` - не аудио, сканер вернул бы
+    /// по нему nil и промолчал (дыра из research/09 §3). Импорт заменяет плейлист целиком,
+    /// поэтому из смешанного дропа берётся первый плейлист, остальное не сканируется.
     func loadURLs(_ urls: [URL]) {
+        if let playlist = urls.first(where: M3UPlaylist.isPlaylist) {
+            importPlaylist(at: playlist)
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             let tracks = await self.scan(urls)
@@ -387,6 +430,111 @@ final class MainWindowController {
             }
         }
         return tracks
+    }
+
+    // MARK: - Плейлист файлом: Import и Export (PL-2)
+
+    @objc private func importPlaylistClicked() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // Системный UTI покрывает и .m3u, и .m3u8 (research/09 §4).
+        panel.allowedContentTypes = [.m3uPlaylist]
+        panel.prompt = Strings.importPlaylistPrompt
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.importPlaylist(at: url)
+        }
+    }
+
+    @objc private func exportPlaylistClicked() {
+        let tracks = exportTracks
+        guard !tracks.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.m3uPlaylist]
+        panel.nameFieldStringValue = Self.suggestedPlaylistName(tracks: tracks)
+        panel.title = Strings.exportPlaylistTitle
+        panel.prompt = Strings.exportPlaylistPrompt
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.exportPlaylist(tracks: tracks, to: url)
+        }
+    }
+
+    /// Импорт: пути из файла в порядке файла, теги читает тот же сканер, что и для папки,
+    /// дальше всё как у дропа папки (лампочки из базы, персист, авторазбор). Порядок файла
+    /// становится ручным порядком плейлиста: `replaceAll` сбрасывает и сортировку, и поиск.
+    private func importPlaylist(at url: URL) {
+        Task { [weak self] in
+            guard let self else { return }
+            let result: M3UReadResult
+            do {
+                result = try M3UPlaylist.readResult(url: url)
+            } catch let error as M3UError {
+                self.showError(Self.message(for: error))
+                return
+            } catch {
+                self.showError(Strings.Error.playlistUnreadable(
+                    url.lastPathComponent, reason: error.localizedDescription))
+                return
+            }
+            let tracks = await self.scan(result.urls)
+            guard !tracks.isEmpty else {
+                // Файлы есть, а читаемых треков нет: текущий плейлист не трогаем, говорим причину.
+                self.showError(Strings.Error.playlistSkipped(
+                    missing: result.missing.count, unreadable: result.urls.count))
+                return
+            }
+            self.applyScanned(tracks)
+            // Пропущенное - после укладки: applyScanned и play гасят прежнюю ошибку.
+            let unreadable = result.urls.count - tracks.count
+            if result.missing.count > 0 || unreadable > 0 {
+                self.showError(Strings.Error.playlistSkipped(
+                    missing: result.missing.count, unreadable: unreadable))
+            }
+        }
+    }
+
+    private func exportPlaylist(tracks: [Track], to url: URL) {
+        do {
+            try M3UPlaylist.write(tracks: tracks, to: url)
+        } catch let error as M3UError {
+            showError(Self.message(for: error))
+        } catch {
+            showError(Strings.Error.playlistUnwritable(
+                url.lastPathComponent, reason: error.localizedDescription))
+        }
+    }
+
+    /// Что уезжает в файл: весь плейлист в текущем порядке, поиск его не дырявит (спека PL-2).
+    /// Ручной порядок - это `allTracks`; клик по колонке даёт тот же `TrackSort`, что и на экране.
+    private var exportTracks: [Track] {
+        let model = playlist.model
+        guard let field = model.sortField else { return model.allTracks }
+        return TrackSort.sorted(model.allTracks, by: field, ascending: model.ascending)
+    }
+
+    /// Имя по умолчанию в панели сохранения - папка плейлиста + `.m3u8`. Папка берётся у первого
+    /// трека (треки из разных папок дают имя первой); в самой панели его можно переписать.
+    static func suggestedPlaylistName(tracks: [Track]) -> String {
+        let folder = tracks.first?.url.deletingLastPathComponent().lastPathComponent ?? ""
+        return Strings.exportedPlaylistName(folder: folder)
+    }
+
+    private static func message(for error: M3UError) -> String {
+        switch error {
+        case .hlsManifest(let file):
+            return Strings.Error.playlistHLS(file)
+        case .empty(let file):
+            return Strings.Error.playlistEmpty(file)
+        case .noTracks(let file, let missing):
+            return Strings.Error.playlistNoTracks(file, missing: missing)
+        case .unreadable(let file, let reason):
+            return Strings.Error.playlistUnreadable(file, reason: reason)
+        case .unwritable(let path, let reason):
+            return Strings.Error.playlistUnwritable(URL(fileURLWithPath: path).lastPathComponent, reason: reason)
+        }
     }
 
     /// Свежие треки в таблицу: лампочки из базы поверх, порядок и текущий - в базу.
@@ -828,6 +976,15 @@ final class MainWindowController {
         )
     }
 
+    /// Export на пустом плейлисте писать нечего: кнопка выключена и гаснет до `accent.gray`
+    /// (у выключенной иконки AppKit не меняет цвет сама, когда цвет задан явно).
+    private func updatePlaylistButtons() {
+        let hasTracks = !playlist.model.allTracks.isEmpty
+        exportButton.isEnabled = hasTracks
+        exportButton.contentTintColor = hasTracks ? Theme.text.secondary : Theme.accent.gray
+        importButton.contentTintColor = Theme.text.secondary
+    }
+
     @objc private func searchChanged() {
         playlist.setQuery(search.stringValue)
     }
@@ -856,6 +1013,7 @@ final class MainWindowController {
     private func refreshChrome() {
         let track = currentTrack
         header.show(track: track)
+        updatePlaylistButtons()
         if let text = errorText ?? storeFailure {
             statusLabel.stringValue = text
             statusLabel.textColor = Theme.text.danger

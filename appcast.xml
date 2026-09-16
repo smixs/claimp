@@ -3,13 +3,13 @@
     <channel>
         <title>Claimp</title>
         <item>
-            <title>0.3.4</title>
-            <pubDate>Wed, 16 Sep 2026 17:03:56 +0500</pubDate>
+            <title>0.4.0</title>
+            <pubDate>Wed, 16 Sep 2026 17:58:47 +0500</pubDate>
             <link>https://github.com/smixs/claimp</link>
-            <sparkle:version>10</sparkle:version>
-            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/smixs/claimp/releases/download/v0.3.4/Claimp-0.3.4.zip" length="7231328" type="application/octet-stream" sparkle:edSignature="G8Own5FLIsmxik5kjT3MJ9gzOjd9IQvSkF4a3Z4NA8OyOkXwMZBihJkEKBp97GueUU6yNSGGjYuRy8Dw+5XZDw=="/>
+            <enclosure url="https://github.com/smixs/claimp/releases/download/v0.4.0/Claimp-0.4.0.zip" length="7245960" type="application/octet-stream" sparkle:edSignature="X21HXdqKVF+2qXiBYbcl/U+HSdNaZTmYWwI/53OzCBmswvvVZm8RL4Bop/7WFg/VrFsXU1fDpwb5UeapIxVhDw=="/>
         </item>
     </channel>
 </rss>

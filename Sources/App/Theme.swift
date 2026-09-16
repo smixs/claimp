@@ -87,6 +87,12 @@ enum Theme {
         static let transportStrip: CGFloat = 52
         static let statusStrip: CGFloat = 20
         static let searchStrip: CGFloat = 30
+        /// Кнопки Import/Export справа от поля Search (PL-2): квадрат в высоту поля поиска (та же
+        /// полоса 30 минус те же поля), иконка внутри - того же масштаба, что и у транспорта.
+        static let searchButton: CGFloat = 22
+        static let searchButtonIcon: CGFloat = 12
+        /// Просвет между полем поиска и кнопками и между самими кнопками.
+        static let searchButtonGap: CGFloat = 4
 
         /// Кнопки транспорта без подложек: квадратная зона клика, внутри только иконка.
         static let transportButton: CGFloat = 44
