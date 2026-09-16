@@ -16,6 +16,14 @@
   <img src="docs/screenshots/claimp-window.webp" alt="Claimp window" width="520">
 </p>
 
+## Install
+
+Download the latest release from **[claimp.app](https://claimp.app/download)**, open the DMG
+and drag **Claimp** into **Applications**. Signed with a Developer ID certificate and
+notarized by Apple; updates arrive inside the app. Requires macOS 27 or newer.
+
+Releases and zips: [github.com/smixs/claimp/releases](https://github.com/smixs/claimp/releases).
+
 ## What it does
 
 **Spectral waveform.** The whole track at a glance: height is loudness, colour is
@@ -36,16 +44,6 @@ a lamp you switch on when a track is already in the mix, Random mode, and the pl
 row always highlighted. Drop a folder on the window or the Dock icon and it plays.
 
 **Stays current.** Claimp checks for updates on launch (Sparkle) and installs them in place.
-
-## Install
-
-Download `Claimp-<version>.dmg` from the
-[Releases page](https://github.com/smixs/claimp/releases), open it and drag **Claimp**
-into **Applications**. The app is signed with a Developer ID certificate and notarized
-by Apple, so it opens without a Gatekeeper warning.
-
-Prefer the zip? `Claimp-<version>.zip` on the same page holds the same notarized
-bundle.
 
 ## Requirements
 
