@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="docs/screenshots/claimp-banner.webp" alt="Claimp" width="800">
+  <img src="docs/screenshots/claimp-logo.png" alt="Claimp" width="420">
 </p>
 
-<p align="center"><b>A minimal waveform player for building DJ sets and compilations in the studio.</b></p>
+<p align="center"><b>The waveform player for building DJ sets on macOS.</b><br>
+<a href="https://claimp.app">claimp.app</a></p>
 
 <p align="center">
   <a href="https://github.com/smixs/claimp/releases"><img src="https://img.shields.io/github/v/release/smixs/claimp?style=flat-square&color=FE6776" alt="Release"></a>
@@ -12,39 +13,33 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/claimp-window.webp" alt="Claimp window" width="520">
+  <img src="docs/screenshots/claimp-hero.webp" alt="Claimp" width="900">
 </p>
 
-## Three things it does
+## What it does
 
 **Spectral waveform.** The whole track at a glance: height is loudness, colour is
 spectrum, from red bass to violet highs. You see the intro, the drop, the breakdown
-before you hear them. Click anywhere to jump.
+before you hear them. Click anywhere to jump. Wave height is a slider in Settings.
 
-**Drag the file into your DAW.** Grab a row or the cover art and drop it into Ableton,
-Bitwig, Finder, anywhere that takes files. No export, no dialogs, the real file lands
-on the timeline.
+**Drag the real file into your DAW.** Grab a row or the cover art and drop it into Ableton,
+Bitwig, Finder, anywhere that takes files. No export, no dialogs.
 
-**A list built for selection.** Year, duration, sort by any column, filter by typing a
-couple of letters, drag any column border to the width you want, and a lamp you switch
-on when a track is already in the mix. The
-shuffle button in the transport makes the next track a random one.
+**BPM and key, on-device.** Select tracks, right-click, "Analyze tracks": tempo and key are
+computed by the MusicUnderstanding framework built into macOS 27 and written back into the
+file tags (TBPM / TKEY, BPM / INITIALKEY). Key shows as Camelot ("8A"), note on hover.
+Automatic analysis of every new track is a switch in Settings.
 
-**BPM and key, on-device.** Right-click the selected tracks and pick "Проанализировать
-треки": Apple's MusicUnderstanding framework works them out in the background, two at a
-time, cached in the library database, and written straight into the file's tags (TBPM/TKEY
-and their equivalents), the way DJ software does it. Nothing is analysed behind your back
-unless you turn automatic analysis on in settings. Key shows as Camelot (8A) with the note on hover. No cloud, no extra install.
+**A playlist built for selection.** Year, length, kbps, BPM, Key; sort by any column, drag
+column headers to reorder, drag borders to resize, filter by typing a couple of letters,
+a lamp you switch on when a track is already in the mix, Random mode, and the playing
+row always highlighted. Drop a folder on the window or the Dock icon and it plays.
 
-**Settings (⌘,).** One column of groups, no tabs: which playlist columns are visible,
-playlist font size (8-16 pt, the row stays as tight as the glyphs), automatic BPM/key
-analysis with its tempo range and length limit, key format (Camelot / note / both), and
-the waveform palette. Everything applies live, no restart.
+**Stays current.** Claimp checks for updates on launch (Sparkle) and installs them in place.
 
-## Updates
-
-Claimp updates itself: Sparkle checks the appcast once a day and offers the new version
-when there is one. To ask right away, use **Claimp → Check for Updates…**.
+<p align="center">
+  <img src="docs/screenshots/claimp-window.webp" alt="Claimp window" width="480">
+</p>
 
 ## Install
 
@@ -148,54 +143,28 @@ Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Sergey Shima.
 
 ## По-русски
 
-**Claimp** — нативный macOS-плеер для подготовки DJ-микса. Открываешь папку с треками,
-видишь спектральную волну всего трека, слушаешь, отмечаешь лампочкой нужное и
-перетаскиваешь настоящий файл прямо в DAW.
+**Claimp** — нативный macOS-плеер для подготовки DJ-микса. Сайт: [claimp.app](https://claimp.app).
+Открываешь папку с треками, видишь спектральную волну всего трека, слушаешь, отмечаешь
+лампочкой нужное и перетаскиваешь настоящий файл прямо в DAW.
 
-- Волна всего трека: высота столбика — громкость (RMS с мягкой компрессией), цвет —
-  спектр частот (как у Serato: красный на низах, через жёлтый и зелёный к
-  фиолетовому на верхах). Клик и протяжка по волне — перемотка.
-- Drag-out файла из двух мест: строка плейлиста и обложка. Файл принимают
-  Ableton Live, Bitwig, Finder, Telegram и всё остальное, что умеет drop файлов.
-- Плейлист с нужными для микса колонками: лампочка, номер, название, исполнитель,
-  **год**, **длительность**; сортировка кликом по заголовку, фильтр по паре букв.
-- Лампочка «сыграно» живёт в SQLite и переживает перезапуск; порядок плейлиста и
-  текущий трек тоже восстанавливаются.
-- BPM и тональность: у треков без тегов считаются на устройстве через системный
-  MusicUnderstanding, по два одновременно. Результат пишется в теги самого файла
-  (TBPM/TKEY и аналоги), а база остаётся кэшем. Тональность в Camelot (8A), при наведении нота.
-- Настройки (⌘,): видимость колонок, кегль плейлиста, автоанализ с диапазоном темпа,
-  формат тональности, палитра волны. Применяется сразу.
-- Папку можно бросить на окно или на иконку в Dock; медиаклавиши и Now Playing
-  работают при неактивном окне.
-- Обновляется сам: Sparkle раз в сутки смотрит фид и предлагает новую версию,
-  вручную - меню «Claimp → Check for Updates…».
+- Волна всего трека: высота столбика — громкость, цвет — спектр от красных басов к
+  фиолетовым верхам. Клик по волне — перемотка, высота волны — ползунок в настройках.
+- Drag-out файла из строки плейлиста и с обложки: принимают Ableton Live, Bitwig, Finder
+  и всё, что умеет drop файлов.
+- BPM и тональность: выделил треки, правый клик, «Analyze tracks» — считает встроенный в
+  macOS 27 MusicUnderstanding, результат пишется в теги файла. Тональность в Camelot (8A),
+  нота по наведению. Автоанализ всех новых треков — переключатель в настройках.
+- Плейлист для отбора: год, длительность, kbps, BPM, Key; сортировка кликом, перестановка
+  и ширина колонок мышью, поиск, лампочка «сыграно», режим Random, играющий трек подсвечен.
+  Папку можно бросить на окно или на иконку в Dock.
+- Обновляется сам: проверяет новую версию при запуске и ставит её на место (Sparkle).
 
-**Требования:** macOS 27+ (анализ BPM и тональности работает на системном фреймворке
-MusicUnderstanding, он появился в macOS 27), Swift 6.4 с SDK macOS 27 - на этой машине
-он в Command Line Tools, поэтому сборка идёт с
-`DEVELOPER_DIR=/Library/Developer/CommandLineTools` (его выставляют `make build` и
-`make test` сами). Сборка проверена на Apple Silicon.
+**Требования:** macOS 27+. Сборка: Swift 6.4 с SDK macOS 27 из Command Line Tools
+(`make build` / `make test` выставляют `DEVELOPER_DIR` сами).
 
-```bash
-make build     # debug-сборка
-make test      # тесты
-make app       # release + build/Claimp.app (ad-hoc подпись)
-make run       # собрать .app и запустить
-make release   # дистрибутив: Developer ID, нотаризация, DMG (нужен сертификат)
-```
-
-**Установка из релиза:** скачать `Claimp-<версия>.dmg` со [страницы релизов](https://github.com/smixs/claimp/releases),
-открыть и перетащить Claimp в Applications. Подписано Developer ID и нотаризовано
-Apple — Gatekeeper не ругается.
-
-Архитектура: четыре модуля — `Core` (модель, сканер, SQLite), `Playback`
-(воспроизведение, медиаклавиши), `Waveform` (анализ и отрисовка волны), `App`
-(AppKit-интерфейс). Документы проекта (`SPEC.md`, `PLAN.md`, `research/`, `AGENTS.md`)
-на русском, код и README — на английском.
-
-**Статус:** ранний личный инструмент, без обещаний поддержки.
+**Установка:** скачать DMG с [claimp.app](https://claimp.app/download) или со
+[страницы релизов](https://github.com/smixs/claimp/releases), перетащить Claimp в Applications.
+Подписано Developer ID и нотаризовано Apple.
 
 **Лицензия:** Apache License 2.0 (`LICENSE`), Copyright 2026 Sergey Shima. Сторонний
 код и его лицензии — в `NOTICE`.
-**Website:** [claimp.app](https://claimp.app)

@@ -246,3 +246,4 @@
 - [x] T21 - перестановка колонок, высота волны в настройках, английский UI, колёсико громкости (влито, 16.09)
 - [x] Сайт claimp.app: Cloudflare Pages `claimp-site`, домены claimp.app + www; деплой `npx -y wrangler pages deploy site --project-name claimp-site --branch main --commit-dirty=true` из корня репо (16.09)
 - [x] T22 запись тегов и подсветка играющего; T23 колонки; T24 Sparkle (влиты 16.09)
+- [x] Релиз 0.3.0 с фидом обновлений: https://github.com/smixs/claimp/releases/tag/v0.3.0 (16.09 09:2x)

@@ -132,7 +132,7 @@ for absent in .scratch .worktrees DECISIONS.md OPEN-QUESTIONS.md research/raw; d
 done
 
 for required in LICENSE NOTICE README.md Package.swift docs/screenshots/claimp-window.webp \
-                docs/screenshots/claimp-banner.webp \
+                docs/screenshots/claimp-logo.png \
                 research/aimp-reference.png research/INDEX.md Sources/App/Theme.swift; do
   if [[ ! -e "$DEST/$required" ]]; then
     echo "СТОП: в экспорте нет обязательного $required" >&2
