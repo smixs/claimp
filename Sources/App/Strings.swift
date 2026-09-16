@@ -56,10 +56,10 @@ enum Strings {
     static func menuAbout(_ appName: String) -> String { "About \(appName)" }
     static func menuQuit(_ appName: String) -> String { "Quit \(appName)" }
 
-    /// Контекстное меню строки плейлиста.
-    static func analyzeTracks(count: Int) -> String {
-        count == 1 ? "Analyze track" : "Analyze tracks"
-    }
+    /// Контекстное меню строки: «Analyze missing (64)» - только без темпа или тональности,
+    /// «Re-analyze all (98)» - принудительно всё выделенное.
+    static func analyzeMissing(count: Int) -> String { "Analyze missing (\(count))" }
+    static func reanalyzeAll(count: Int) -> String { "Re-analyze all (\(count))" }
 
     static let removeFromPlaylist = "Remove from playlist"
 

@@ -54,6 +54,16 @@ final class PlaylistController: NSObject {
         tableView.selectedRowIndexes.compactMap { rowURL($0) }
     }
 
+    /// Что считать по правому клику: из выделенного только треки без темпа или тональности.
+    /// Решение владельца 16.09 (матом): пересчитывать уже размеченные незачем.
+    var selectedURLsNeedingAnalysis: [URL] {
+        tableView.selectedRowIndexes.compactMap { row in
+            guard row < model.displayed.count else { return nil }
+            let track = model.displayed[row]
+            return (track.bpm == nil || track.key == nil) ? track.url : nil
+        }
+    }
+
     var selectedTrack: Track? {
         guard tableView.selectedRow >= 0, tableView.selectedRow < model.displayed.count else { return nil }
         return model.displayed[tableView.selectedRow]
@@ -196,6 +206,8 @@ final class PlaylistController: NSObject {
         // Контекстное меню строки: состав пунктов собирается на каждый показ по выделению.
         let menu = NSMenu()
         menu.delegate = self
+        // Доступность пунктов решает `menuNeedsUpdate`, а не автовключение по target/action.
+        menu.autoenablesItems = false
         tableView.menu = menu
 
         tableView.onDeleteKey = { [weak self] in self?.deleteSelected() }
@@ -560,11 +572,20 @@ final class PlaylistController: NSObject {
         menu.removeAllItems()
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
-        let analyze = NSMenuItem(
-            title: Strings.analyzeTracks(count: urls.count),
+        // Два пункта всегда (владелец 16.09): «недостающие» - только треки без темпа или
+        // тональности, «все» - принудительный пересчёт выделенного, если тег кривой.
+        let missing = selectedURLsNeedingAnalysis.count
+        let analyzeMissing = NSMenuItem(
+            title: Strings.analyzeMissing(count: missing),
             action: #selector(analyzeSelected), keyEquivalent: "")
-        analyze.target = self
-        menu.addItem(analyze)
+        analyzeMissing.target = self
+        analyzeMissing.isEnabled = missing > 0
+        menu.addItem(analyzeMissing)
+        let reanalyze = NSMenuItem(
+            title: Strings.reanalyzeAll(count: urls.count),
+            action: #selector(reanalyzeSelected), keyEquivalent: "")
+        reanalyze.target = self
+        menu.addItem(reanalyze)
         let delete = NSMenuItem(
             title: Strings.removeFromPlaylist, action: #selector(deleteSelectedFromMenu),
             keyEquivalent: "")
@@ -573,6 +594,12 @@ final class PlaylistController: NSObject {
     }
 
     @objc private func analyzeSelected() {
+        let urls = selectedURLsNeedingAnalysis
+        guard !urls.isEmpty else { return }
+        onAnalyzeSelected?(urls)
+    }
+
+    @objc private func reanalyzeSelected() {
         let urls = selectedURLs
         guard !urls.isEmpty else { return }
         onAnalyzeSelected?(urls)
