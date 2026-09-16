@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/claimp-logo.png" alt="Claimp" width="420">
+  <img src="docs/screenshots/claimp-banner.png" alt="Claimp" width="520">
 </p>
 
 <p align="center"><b>The waveform player for building DJ sets on macOS.</b><br>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/claimp-hero.webp" alt="Claimp" width="900">
+  <img src="docs/screenshots/claimp-window.webp" alt="Claimp window" width="520">
 </p>
 
 ## What it does
@@ -36,10 +36,6 @@ a lamp you switch on when a track is already in the mix, Random mode, and the pl
 row always highlighted. Drop a folder on the window or the Dock icon and it plays.
 
 **Stays current.** Claimp checks for updates on launch (Sparkle) and installs them in place.
-
-<p align="center">
-  <img src="docs/screenshots/claimp-window.webp" alt="Claimp window" width="480">
-</p>
 
 ## Install
 
