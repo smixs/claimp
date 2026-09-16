@@ -233,6 +233,15 @@ final class MainWindowController {
         playlist.simulateUserColumnDrag(.year, delta: 40)
         probeReport(playlist.columnReportLine("drag-year+40"))
         playlist.simulateUserColumnDrag(.year, delta: -40)
+        // Сценарии владельца 16.09: год схлопнуть в полоску, крайнюю растянуть на 200.
+        playlist.simulateUserColumnDrag(.year, delta: -80)
+        probeReport(playlist.columnReportLine("year-to-min"))
+        if let last = playlist.lastVisibleColumn {
+            playlist.simulateUserColumnDrag(last, delta: 200)
+            probeReport(playlist.columnReportLine("widen-last+200"))
+            playlist.simulateUserColumnDrag(last, delta: -200)
+        }
+        playlist.simulateUserColumnDrag(.year, delta: 80)
         setWindowWidth(900)
         probeReport(playlist.columnReportLine("window-900"))
         setWindowWidth(500)

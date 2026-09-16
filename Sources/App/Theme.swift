@@ -167,31 +167,9 @@ enum Theme {
         static let resizeHotZone: CGFloat = 3
         /// Коридоры ручного изменения ширины: у текста широкий, у чисел узкий
         /// (так у Aural, Cog, Bòcan - отчёт research/07 §4.5, значения §6.1).
-        /// Минимумы номера и года подняты против §6.1 по замеру на живом окне: при поле 8 pt
-        /// справа «154» и «2024» в 22 и 32 pt обрезаются на середине цифры.
-        static let playedMin: CGFloat = 16
-        static let playedMax: CGFloat = 24
-        static let numberMin: CGFloat = 28
-        static let numberMax: CGFloat = 44
-        /// Минимумы текстовых колонок держат сумму минимумов ниже минимальной ширины окна:
-        /// при 120/90 сумма девяти минимумов 484 pt была больше `windowMinWidth` 420, таблица
-        /// не могла сжаться и крайняя колонка уезжала за край (замер research/08 §5.4).
-        static let titleMin: CGFloat = 80
-        static let titleMax: CGFloat = 800
-        static let artistMin: CGFloat = 60
-        static let artistMax: CGFloat = 800
-        static let yearMin: CGFloat = 40
-        static let yearMax: CGFloat = 56
-        static let durationMin: CGFloat = 44
-        static let durationMax: CGFloat = 64
-        static let bitrateMin: CGFloat = 48
-        static let bitrateMax: CGFloat = 72
-        static let bpmMin: CGFloat = 40
-        static let bpmMax: CGFloat = 64
-        static let keyMin: CGFloat = 40
-        static let keyMax: CGFloat = 72
-        static let keyBothMin: CGFloat = 60
-        static let keyBothMax: CGFloat = 96
+        /// Единственный минимум ширины любой колонки: почти ноль, чтобы владелец мог схлопнуть
+        /// колонку до полоски. Максимума нет (решение владельца 2026-09-16).
+        static let minWidth: CGFloat = 4
         static let played: CGFloat = 16
         /// Стартовая ширина номера и года: три цифры и четыре цифры плюс поля ячейки
         /// (при поле 8 pt справа «2024» в 32 pt уже не помещалось - замер на живом окне).

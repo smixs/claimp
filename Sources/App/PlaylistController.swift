@@ -295,6 +295,13 @@ final class PlaylistController: NSObject {
         isFitting = true
         tableView.setFrameSize(NSSize(width: clipWidth, height: tableView.frame.height))
         tableView.sizeToFit()
+        // `sizeToFit` двигает только эластичные колонки; если они уже у минимума (владелец
+        // схлопнул Title/Artist или вернул их после скрытия), остаток снимаем с крайней.
+        let overflow = tableView.frame.width - clipWidth
+        if overflow > 0, let last = tableView.tableColumns.last(where: { !$0.isHidden }) {
+            last.width = max(last.minWidth, last.width - overflow)
+            tableView.setFrameSize(NSSize(width: clipWidth, height: tableView.frame.height))
+        }
         isFitting = false
     }
 

@@ -38,32 +38,15 @@ enum PlaylistColumn: String, CaseIterable {
     /// в том числе числовая; содержимое, которое не влезло, обрезается, а строка не расширяется.
     /// Название и Исполнитель, кроме того, делят между собой лишнюю ширину окна.
     @MainActor func applyLimits(to column: NSTableColumn) {
-        let range = widthRange(keyFormat: SettingsStore.shared.value.keyFormat)
-        column.minWidth = Theme.column.scaled(range.lowerBound)
-        column.maxWidth = Theme.column.scaled(range.upperBound)
+        // Решение владельца 2026-09-16 (матом): никаких коридоров. Любую колонку можно
+        // сжать почти в ноль и растянуть сколько угодно; текст, который не влез, обрезается.
+        column.minWidth = Theme.column.minWidth
+        column.maxWidth = CGFloat.greatestFiniteMagnitude
         column.resizingMask = stretches
             ? [.userResizingMask, .autoresizingMask]
             : [.userResizingMask]
     }
 
-    /// Коридор ручного изменения: у Названия и Исполнителя широкий, у числовых узкий -
-    /// иначе одна цифра растягивается на пол-окна (отчёт research/07 §6.1).
-    func widthRange(keyFormat: KeyFormat) -> ClosedRange<CGFloat> {
-        switch self {
-        case .played: return Theme.column.playedMin...Theme.column.playedMax
-        case .number: return Theme.column.numberMin...Theme.column.numberMax
-        case .title: return Theme.column.titleMin...Theme.column.titleMax
-        case .artist: return Theme.column.artistMin...Theme.column.artistMax
-        case .year: return Theme.column.yearMin...Theme.column.yearMax
-        case .duration: return Theme.column.durationMin...Theme.column.durationMax
-        case .bitrate: return Theme.column.bitrateMin...Theme.column.bitrateMax
-        case .bpm: return Theme.column.bpmMin...Theme.column.bpmMax
-        case .key:
-            return keyFormat == .both
-                ? Theme.column.keyBothMin...Theme.column.keyBothMax
-                : Theme.column.keyMin...Theme.column.keyMax
-        }
-    }
 
     /// Ширина при первом показе: дальше её помнит autosave таблицы или рука владельца.
     @MainActor func startWidth(keyFormat: KeyFormat) -> CGFloat {
@@ -349,13 +332,10 @@ final class PlaylistTextCell: NSTableCellView, RowTinting {
         wantsLayer = true
         label.lineBreakMode = .byTruncatingTail
         label.cell?.truncatesLastVisibleLine = true
-        label.translatesAutoresizingMaskIntoConstraints = false
+        // Раскладка кадрами, не констрейнтами: при протяжке разделителя ширина каждой видимой
+        // ячейки меняется на каждом пикселе, и решатель Auto Layout на сотне ячеек давал
+        // 27 мс на тик (проба T26). Кадр считается в `layout()` за одно присваивание.
         addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Theme.column.cellInsetLeading),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Theme.column.cellInsetTrailing),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
     }
 
     required init?(coder: NSCoder) {
@@ -374,6 +354,12 @@ final class PlaylistTextCell: NSTableCellView, RowTinting {
 
     override func layout() {
         super.layout()
+        let height = label.intrinsicContentSize.height
+        label.frame = NSRect(
+            x: Theme.column.cellInsetLeading,
+            y: ((bounds.height - height) / 2).rounded(),
+            width: max(0, bounds.width - Theme.column.cellInsetLeading - Theme.column.cellInsetTrailing),
+            height: height)
         restyle()
     }
 
