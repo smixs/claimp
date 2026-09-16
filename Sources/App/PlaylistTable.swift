@@ -85,12 +85,6 @@ enum PlaylistColumn: String, CaseIterable {
         self == .title || self == .artist
     }
 
-    var alignsRight: Bool {
-        switch self {
-        case .number, .year, .duration, .bitrate, .bpm: return true
-        case .played, .title, .artist, .key: return false
-        }
-    }
 }
 
 /// Выделение и «играющий трек» без системного синего рисуют сами ячейки.
@@ -337,9 +331,13 @@ final class PlayedDotCell: NSTableCellView, RowTinting {
     }
 }
 
+/// Текстовая ячейка плейлиста по образцу Bòcan (`TrackTableCoordinator.swift:108-122`):
+/// поле прибито к обоим краям ячейки, поэтому ширину текста решает колонка, а не текст;
+/// не влезло - системная обрезка хвоста. Выравнивание у всех колонок левое, включая числовые
+/// (решение владельца 16.09: цифры не должны быть приклеены к правому краю).
 final class PlaylistTextCell: NSTableCellView, RowTinting {
     static let identifier = NSUserInterfaceItemIdentifier("PlaylistTextCell")
-    let label = FadingLabel()
+    let label = NSTextField(labelWithString: "")
     var baseColor: NSColor = Theme.text.primary {
         didSet { restyle() }
     }
@@ -349,6 +347,8 @@ final class PlaylistTextCell: NSTableCellView, RowTinting {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = true
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
@@ -380,8 +380,6 @@ final class PlaylistTextCell: NSTableCellView, RowTinting {
     private func restyle() {
         let fill = RowTint.background(playing: isPlayingRow, selected: isCellSelected)
         label.textColor = RowTint.text(playing: isPlayingRow, selected: isCellSelected, base: baseColor)
-        // Мягкая обрезка уходит в цвет самой строки, иначе край текста гаснет в чужой фон.
-        label.fadeColor = fill ?? Theme.background.base
         Theme.fill(self, color: fill)
     }
 }

@@ -58,6 +58,9 @@ public struct WaveformStyle: Sendable, Equatable {
         public static let maxWaveHeight: CGFloat = 100
         /// Полоса с подписями времени под волной (SPEC 4.1).
         public static let timeStripHeight: CGFloat = 14
+        /// Пауза, после которой размер считается устоявшимся и битмап перерисовывается точно.
+        /// Пока владелец тянет окно или слайдер, кадры идут чаще, и волну тянет сам слой.
+        public static let resizeSettleDelay: TimeInterval = 0.08
     }
 
     public var low: Color

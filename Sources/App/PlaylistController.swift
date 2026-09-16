@@ -38,8 +38,12 @@ final class PlaylistController: NSObject {
     private var widthsFontSize = SettingsStore.shared.value.playlistFontSize
     /// Набор видимых колонок, под который посчитаны текущие ширины.
     private var lastVisibleColumns: Set<String> = []
-    /// Страж от рекурсии: собственная правка ширины стреляет тем же уведомлением.
-    private var isBalancingColumns = false
+    /// Настройки, под которые уже разложена таблица. Правило одно на всех потребителей
+    /// настроек: применяем только то, что изменилось у нас. Без него любой тик чужого
+    /// слайдера перезагружал все строки (замер до правки: 90 мс на тик, 81 тик из 81 > 16 мс).
+    private var appliedSettings: AppSettings?
+    /// Страж от рекурсии: `sizeToFit` сам стреляет уведомлением о ресайзе колонки.
+    private var isFitting = false
 
     var statusText: String {
         PlaylistSummary.text(for: model.displayed)
@@ -151,11 +155,10 @@ final class PlaylistController: NSObject {
         // Воздух между колонками: при нуле столбик цифр прилипал к соседней колонке.
         tableView.intercellSpacing = NSSize(width: Theme.column.intercellWidth, height: 0)
         tableView.backgroundColor = Theme.background.base
-        // Лишнюю ширину окна забирает последняя авторесайзная колонка (Исполнитель), а не все
-        // сразу: `uniform` размазывал протяжку по всем девяти - жалоба владельца 16.09.
-        // Протяжку разделителя AppKit не компенсирует ни в одном режиме (research/07 §1.2),
-        // это делает columnDidResize ниже.
-        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        // Раздачу ширины целиком делает `fitColumnsToWindow` (замеры research/08 §4.2):
+        // при этом режиме прирост окна расходится по обеим эластичным колонкам поровну,
+        // а `sequential`/`lastColumnOnly` отдают его одной.
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.allowsColumnResizing = true
 
         tableView.headerView = FlatHeaderView()
@@ -164,7 +167,7 @@ final class PlaylistController: NSObject {
             let header = FlatHeaderCell(textCell: column.headerTitle)
             header.font = Theme.font.columnHeader
             header.textColor = Theme.text.secondary
-            header.alignment = column.alignsRight ? .right : .left
+            header.alignment = .left
             tableColumn.headerCell = header
             tableColumn.title = column.headerTitle
             if let field = column.sortField {
@@ -237,6 +240,14 @@ final class PlaylistController: NSObject {
     /// формат тональности. Сами числа считает `Theme` от кегля из `SettingsStore`.
     func applySettings() {
         let settings = SettingsStore.shared.value
+        let previous = appliedSettings
+        appliedSettings = settings
+        // Таблицу задают три настройки: кегль, состав колонок и формат тональности. Всё
+        // остальное (высота волны, палитра, яркость, анализ) её не касается.
+        guard previous?.playlistFontSize != settings.playlistFontSize
+            || previous?.hiddenColumns != settings.hiddenColumns
+            || previous?.keyFormat != settings.keyFormat
+        else { return }
         let visible = Set(PlaylistColumns.visible(
             all: PlaylistColumn.allCases.map(\.rawValue), hidden: settings.hiddenColumns))
         tableView.rowHeight = Theme.size.row
@@ -252,138 +263,82 @@ final class PlaylistController: NSObject {
             tableColumn.width = CGFloat(PlaylistFont.rescaled(
                 width: Double(tableColumn.width), fromRow: previousSize, toRow: settings.playlistFontSize))
         }
-        // Инвариант восстанавливаем только когда ширины действительно поехали: кегль сменился
-        // (все ширины умножились на отношение кеглей) или колонку показали/спрятали. На прочих
-        // применениях настроек sizeToFit не зовём - он двигал бы ширины на каждое ⌘,.
-        // Затрагивает он только авторесайзные Название и Исполнитель (research/07 §1.2 блок D),
-        // ручные ширины числовых колонок остаются как поставили.
-        let visibilityChanged = visible != lastVisibleColumns
+        keepOneElasticColumn()
         lastVisibleColumns = visible
-        if previousSize != settings.playlistFontSize || visibilityChanged {
-            restoreWidthInvariant()
-        }
+        fitColumnsToWindow()
         tableView.headerView?.needsDisplay = true
         reloadCells()
     }
 
+    /// Раздать лишнюю ширину `sizeToFit` может только колонке с `.autoresizingMask`. Владелец
+    /// спрятал обе текстовые - маску получает последняя видимая, иначе справа остаётся пустота
+    /// (замер прогона: sum=283 при клипе 500).
+    private func keepOneElasticColumn() {
+        let visible = tableView.tableColumns.filter { !$0.isHidden }
+        guard !visible.isEmpty,
+            !visible.contains(where: { $0.resizingMask.contains(.autoresizingMask) }),
+            let last = visible.last
+        else { return }
+        last.resizingMask = [.userResizingMask, .autoresizingMask]
+    }
+
     // MARK: - Ширины колонок
 
-    /// Сумма ширин обязана равняться ширине таблицы, а таблица - ширине окна: иначе расширение
-    /// окна не раздаёт место (дыра справа, research/07 §1.2 блок D), а лишняя ширина выпихивает
-    /// крайнюю колонку за край. После смены кегля или видимости колонки сумма едет, и AppKit
-    /// растягивает под неё саму таблицу (замер COLUMNPROBE font-16: таблица 737 pt при окне
-    /// 500 - Key за краем), поэтому сначала возвращаем таблице ширину окна и только потом
-    /// просим разложить колонки по ней.
-    @objc private func clipDidResize() {
-        restoreWidthInvariant()
-    }
-
-    private func restoreWidthInvariant() {
+    /// Одна функция на все случаи, когда ширины поехали: окно сменило ширину, владелец потянул
+    /// разделитель, колонку показали или спрятали, сменился кегль. Ширина таблицы принудительно
+    /// равна ширине клипа, а `sizeToFit` раскладывает по ней колонки, двигая только эластичные
+    /// (замеры research/08 §2.3, §4.1, §4.3). Своей арифметики дельт нет.
+    private func fitColumnsToWindow() {
+        guard !isFitting else { return }
         let clipWidth = scrollView.contentView.bounds.width
         guard clipWidth > 0 else { return }
+        isFitting = true
         tableView.setFrameSize(NSSize(width: clipWidth, height: tableView.frame.height))
         tableView.sizeToFit()
+        isFitting = false
     }
 
-    /// Ключи userInfo уведомления о ресайзе колонки (NSTableView.h:729).
-    private static let resizedColumnKey = "NSTableColumn"
-    private static let oldWidthKey = "NSOldWidth"
-
-    /// Владелец потянул разделитель: AppKit меняет только колонку слева от границы, а таблица
-    /// становится шире окна и крайняя правая уезжает за край (замеры research/07 §1.2, блок C).
-    /// Дельту гасят соседи справа, за ними эластичные слева - сумма ширин остаётся равной
-    /// ширине таблицы, горизонтального скролла не появляется.
-    @objc private func columnDidResize(_ note: Notification) {
-        guard !isBalancingColumns,
-            let header = tableView.headerView, header.resizedColumn != -1,
-            let resized = note.userInfo?[Self.resizedColumnKey] as? NSTableColumn,
-            let oldWidth = (note.userInfo?[Self.oldWidthKey] as? NSNumber).map({ CGFloat($0.doubleValue) })
-        else { return }
-        balanceColumns(after: resized, oldWidth: oldWidth)
+    @objc private func clipDidResize() {
+        fitColumnsToWindow()
     }
 
-    /// Раздача дельты по соседям. Отдельно от уведомления: тот же путь зовёт отладочный
-    /// прогон `runColumnProbe`, которому мышь недоступна.
-    private func balanceColumns(after resized: NSTableColumn, oldWidth: CGFloat) {
-        let columns = tableView.tableColumns.filter { !$0.isHidden }
-        guard let index = columns.firstIndex(where: { $0 === resized }) else { return }
-        let delta = resized.width - oldWidth
-        guard delta != 0 else { return }
-
-        var widths = columns.map(\.width)
-        widths[index] = oldWidth
-        let limits = columns.map {
-            ColumnWidthLimits(
-                minWidth: $0.minWidth, maxWidth: $0.maxWidth,
-                isElastic: $0.resizingMask.contains(.autoresizingMask))
-        }
-        let balanced = ColumnWidthBalancer.redistribute(
-            delta: delta, resizedIndex: index, widths: widths, limits: limits)
-
-        isBalancingColumns = true
-        for (column, width) in zip(columns, balanced) where column.width != width {
-            column.width = width
-        }
-        isBalancingColumns = false
+    /// Владелец потянул разделитель: AppKit меняет одну колонку и растягивает саму таблицу,
+    /// поэтому дальше делаем ровно то же, что и при смене ширины окна.
+    @objc private func columnDidResize() {
+        fitColumnsToWindow()
     }
 
 
-    // MARK: - Отладочный прогон колонок (CLAIMP_COLUMN_PROBE=1)
+    // MARK: - Отладочный прогон (CLAIMP_PROBE=1)
 
-    /// Проверка поведения колонок без мыши: протяжка границы эмулируется тем же путём, каким
-    /// её обрабатывает уведомление о ресайзе, замеры уходят в stderr. Нужна для снимков и
-    /// доказательств, как `--open-settings`; на обычном запуске не работает.
-    func runColumnProbe() {
-        let steps: [(String, () -> Void)] = [
-            ("start", {}),
-            ("drag-bpm+40", { [weak self] in self?.emulateColumnDrag(.bpm, delta: 40) }),
-            ("drag-bpm-40", { [weak self] in self?.emulateColumnDrag(.bpm, delta: -40) }),
-            ("drag-title+200", { [weak self] in self?.emulateColumnDrag(.title, delta: 200) }),
-            ("font-16", { [weak self] in
-                SettingsStore.shared.update { $0.playlistFontSize = 16 }
-                self?.applySettings()
-            }),
-            ("font-back", { [weak self] in
-                SettingsStore.shared.update { $0.playlistFontSize = PlaylistFont.defaultSize }
-                self?.applySettings()
-            }),
-            ("sort-year", { [weak self] in
-                self?.applySort([NSSortDescriptor(key: "year", ascending: true)])
-            }),
-        ]
-        for (index, step) in steps.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2 + 3 * Double(index)) { [weak self] in
-                step.1()
-                self?.reportColumnProbe(step: index, name: step.0)
-            }
-        }
-    }
-
-    /// Протяжка границы без мыши: ширину ставим сами (уведомление от своей правки глушим),
-    /// дальше - ровно та же раздача дельты, что и при настоящей протяжке.
-    private func emulateColumnDrag(_ kind: PlaylistColumn, delta: CGFloat) {
+    /// Протяжка границы без мыши: AppKit при настоящей протяжке ставит новую ширину одной
+    /// колонке, дальше работает наш обработчик. Здесь ровно то же, поэтому прогон меряет
+    /// продуктовый путь, а не свою копию логики.
+    func simulateUserColumnDrag(_ kind: PlaylistColumn, delta: CGFloat) {
         guard let column = tableView.tableColumns.first(
             where: { $0.identifier.rawValue == kind.rawValue }) else { return }
-        let oldWidth = column.width
-        isBalancingColumns = true
-        column.width = min(max(oldWidth + delta, column.minWidth), column.maxWidth)
-        isBalancingColumns = false
-        balanceColumns(after: column, oldWidth: oldWidth)
+        column.width = min(max(column.width + delta, column.minWidth), column.maxWidth)
     }
 
-    private func reportColumnProbe(step: Int, name: String) {
+    /// Последняя видимая колонка: её тянет владелец, когда жалуется на пустоту справа.
+    var lastVisibleColumn: PlaylistColumn? {
+        tableView.tableColumns.last { !$0.isHidden }
+            .flatMap { PlaylistColumn(rawValue: $0.identifier.rawValue) }
+    }
+
+    /// Строка замера: ширины видимых колонок, их сумма с промежутками, ширина таблицы и клипа.
+    /// `fits` - тот самый инвариант «таблица ровно по окну».
+    func columnReportLine(_ step: String) -> String {
         let columns = tableView.tableColumns.filter { !$0.isHidden }
         let widths = columns
             .map { "\($0.identifier.rawValue)=\(Int($0.width.rounded()))" }
             .joined(separator: " ")
         let sum = columns.reduce(0) { $0 + $1.width }
-        let lastEdge = columns.isEmpty ? 0 : tableView.rect(
-            ofColumn: tableView.tableColumns.count - 1).maxX
-        let line = "COLUMNPROBE \(step) \(name) window=\(tableView.window?.windowNumber ?? -1)"
-            + " table=\(Int(tableView.frame.width))"
-            + " clip=\(Int(scrollView.contentView.bounds.width)) sum=\(Int(sum.rounded()))"
-            + " lastEdge=\(Int(lastEdge.rounded())) \(widths)\n"
-        FileHandle.standardError.write(Data(line.utf8))
+            + Theme.column.intercellWidth * CGFloat(max(0, columns.count - 1))
+        let table = tableView.frame.width
+        let clip = scrollView.contentView.bounds.width
+        return "PROBE columns \(step) sum=\(Int(sum.rounded())) table=\(Int(table.rounded()))"
+            + " clip=\(Int(clip.rounded())) fits=\(abs(table - clip) < 1) \(widths)"
     }
 
     /// Перерисовка всех ячеек без перестроения списка: выделение и прокрутка на месте.
@@ -429,7 +384,6 @@ final class PlaylistController: NSObject {
             ?? PlaylistTextCell()
         cell.identifier = PlaylistTextCell.identifier
         cell.label.font = monoFont(for: columnKind)
-        cell.label.alignment = columnKind.alignsRight ? .right : .left
         cell.baseColor = (columnKind == .title || columnKind == .artist) ? Theme.text.primary : Theme.text.secondary
         cell.label.stringValue = text(track: track, number: index + 1, column: columnKind)
         // Ячейки переиспользуются: подсказку выставляем всегда, иначе она останется от чужой строки.

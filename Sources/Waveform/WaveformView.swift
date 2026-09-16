@@ -37,6 +37,7 @@ public final class WaveformView: NSView {
     public var data: WaveformData? {
         didSet {
             bands = Self.bands(from: data)
+            cachedProfile = nil
             rebuildWaveform()
         }
     }
@@ -63,6 +64,12 @@ public final class WaveformView: NSView {
     private var clampedProgress: Double = 0
     private var bands: (low: [Float], mid: [Float], high: [Float]) = ([], [], [])
     private var renderedSize: CGSize = .zero
+    /// Готовая полоса (ресемпл + сглаживание + компрессия) под ширину в пикселях и текущий
+    /// стиль. От высоты она не зависит, поэтому протяжка слайдера высоты волны её не пересчитывает:
+    /// на каждый тик оставалась только заливка столбиков.
+    private var cachedProfile: (width: Int, style: WaveformStyle, profile: WaveformProfile)?
+    /// Отложенная точная перерисовка после протяжки; новая протяжка её отменяет.
+    private var pendingRebuild: DispatchWorkItem?
 
     private let waveLayer = CALayer()
     private let unplayedLayer = CALayer()
@@ -94,9 +101,29 @@ public final class WaveformView: NSView {
     public override func layout() {
         super.layout()
         layoutLabels()
-        if bounds.size != renderedSize {
+        guard bounds.size != renderedSize else { return }
+        // Готового битмапа ещё нет - рисуем сразу, иначе полоса моргала бы пустотой.
+        guard waveLayer.contents != nil else {
             rebuildWaveform()
+            return
         }
+        stretchWaveformUntilSizeSettles()
+    }
+
+    /// Протяжка окна или слайдера высоты меняет размер десятками кадров подряд. На каждом кадре
+    /// битмап тянет сам слой (`contentsGravity = .resize`), а точная перерисовка идёт один раз,
+    /// когда размер устоялся: пересчёт полосы на каждый кадр давал кадры длиннее 16 мс.
+    private func stretchWaveformUntilSizeSettles() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        waveLayer.frame = waveRect
+        CATransaction.commit()
+        updateProgress()
+        pendingRebuild?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.rebuildWaveform() }
+        pendingRebuild = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + WaveformStyle.Geometry.resizeSettleDelay, execute: work)
     }
 
     // MARK: - Мышь
@@ -126,6 +153,7 @@ public final class WaveformView: NSView {
         for layer in [waveLayer, unplayedLayer, cursorLayer] {
             layer.contentsScale = window?.backingScaleFactor ?? 2
         }
+        waveLayer.contentsGravity = .resize
         layer?.addSublayer(waveLayer)
         layer?.addSublayer(unplayedLayer)
         layer?.addSublayer(cursorLayer)
@@ -151,6 +179,8 @@ public final class WaveformView: NSView {
 
     /// Пересчёт под текущий размер: данные трека не трогаются, ресайз окна анализа не вызывает.
     private func rebuildWaveform() {
+        pendingRebuild?.cancel()
+        pendingRebuild = nil
         renderedSize = bounds.size
         applyStyle()
         let rect = waveRect
@@ -183,8 +213,7 @@ public final class WaveformView: NSView {
         else { return nil }
         // Поле и минимум заданы в точках, поэтому переводятся в пиксели масштабом высоты.
         let scale = CGFloat(height) / max(waveRect.height, 1)
-        let profile = WaveformProfile.make(
-            low: bands.low, mid: bands.mid, high: bands.high, width: width, style: style)
+        let profile = profile(width: width)
         // Пустое состояние (SPEC §6.12): пока данных нет, по центру идёт тонкая осевая линия,
         // а не ровный фон. Толщина - minimumBarHeight, цвет - emptyLine.
         guard !profile.heights.isEmpty else {
@@ -210,6 +239,17 @@ public final class WaveformView: NSView {
             context.fill(CGRect(x: CGFloat(index), y: originY, width: 1, height: barHeight))
         }
         return context.makeImage()
+    }
+
+    /// Полоса под текущую ширину: пересчитывается только при смене ширины, стиля или данных.
+    private func profile(width: Int) -> WaveformProfile {
+        if let cached = cachedProfile, cached.width == width, cached.style == style {
+            return cached.profile
+        }
+        let made = WaveformProfile.make(
+            low: bands.low, mid: bands.mid, high: bands.high, width: width, style: style)
+        cachedProfile = (width, style, made)
+        return made
     }
 
     /// Фон, приглушение несыгранного и цвет курсора: всё из `WaveformStyle`.

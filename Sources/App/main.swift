@@ -18,10 +18,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
         if Self.shouldOpenSettingsAtLaunch() { controller.showSettings() }
         if Self.launchFlag("--check-updates", "CLAIMP_CHECK_UPDATES") { checkForUpdatesAfterStartupCheck() }
-        if Self.launchFlag("--column-probe", "CLAIMP_COLUMN_PROBE") {
-            let raw = ProcessInfo.processInfo.environment["CLAIMP_COLUMN_PROBE_WIDTH"]
-            let width = raw.flatMap { Double($0) }.map { CGFloat($0) }
-            controller.runColumnProbe(width: width)
+        if Self.launchFlag("--probe", "CLAIMP_PROBE") {
+            let environment = ProcessInfo.processInfo.environment
+            // Папку прогон открывает сам: `open --env` вместе с путём документа launchd
+            // отбивает («Launchd job spawn failed»), а прогону нужен живой корпус.
+            if let folder = environment["CLAIMP_PROBE_FOLDER"] {
+                controller.loadURLs([URL(fileURLWithPath: folder)])
+            }
+            let width = environment["CLAIMP_PROBE_WIDTH"].flatMap { Double($0) }.map { CGFloat($0) }
+            controller.runProbe(width: width)
         }
         guard !pendingURLs.isEmpty else { return }
         controller.loadURLs(pendingURLs)

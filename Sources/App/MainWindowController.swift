@@ -46,6 +46,8 @@ final class MainWindowController {
 
     /// Подписка на изменения настроек: снимается вместе с контроллером.
     private var settingsObserver: NSObjectProtocol?
+    /// Настройки, которые уже применены к окну: высота волны меняется только при её изменении.
+    private var appliedSettings: AppSettings?
 
     private var positionsTask: Task<Void, Never>?
     private var waveTask: Task<Void, Never>?
@@ -185,15 +187,140 @@ final class MainWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Отладочный прогон колонок (`CLAIMP_COLUMN_PROBE=1`): замеры в stderr. Ширину окна
-    /// задаёт `CLAIMP_COLUMN_PROBE_WIDTH` - так проверяется раздача места без мыши.
-    func runColumnProbe(width: CGFloat?) {
-        if let width {
-            var frame = window.frame
-            frame.size.width = width
-            window.setFrame(frame, display: true)
+    /// Отладочный прогон (`--probe` / `CLAIMP_PROBE=1`): числа по колонкам и время одного тика
+    /// слайдера высоты волны, всё в stderr. Мыши у прогона нет, поэтому сценарии владельца
+    /// воспроизводятся теми же вызовами, какими их делает AppKit.
+    func runProbe(width: CGFloat?) {
+        if let width { setWindowWidth(width) }
+        waitForProbeReady(attempt: 0)
+    }
+
+    /// Прогон стартует по готовым данным: пустой плейлист и пустая волна мерили бы не то,
+    /// на что жалуется владелец. Ждём восстановления библиотеки и волны, но не бесконечно.
+    private func waitForProbeReady(attempt: Int) {
+        let ready = !playlist.model.displayed.isEmpty && wave.data != nil
+        guard !ready, attempt < 120 else {
+            probeReport("PROBE ready rows=\(playlist.model.displayed.count) wave=\(wave.data != nil)"
+                + " attempt=\(attempt)")
+            probeColumns()
+            probeWaveHeightTicks()
+            probeInteractionTicks()
+            probeIdle()
+            return
         }
-        playlist.runColumnProbe()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.waitForProbeReady(attempt: attempt + 1)
+        }
+    }
+
+    private func setWindowWidth(_ width: CGFloat) {
+        var frame = window.frame
+        frame.size.width = width
+        window.setFrame(frame, display: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    /// Три сценария владельца числами: ужатие крайней колонки, протяжка средней, окно 500→900.
+    /// Плюс случай «обе эластичные колонки спрятаны» (риск research/08 §5.4).
+    private func probeColumns() {
+        probeReport(playlist.columnReportLine("start"))
+        if let last = playlist.lastVisibleColumn {
+            playlist.simulateUserColumnDrag(last, delta: 20)
+            probeReport(playlist.columnReportLine("widen-last+20"))
+            playlist.simulateUserColumnDrag(last, delta: -20)
+            probeReport(playlist.columnReportLine("shrink-last-20"))
+        }
+        playlist.simulateUserColumnDrag(.year, delta: 40)
+        probeReport(playlist.columnReportLine("drag-year+40"))
+        playlist.simulateUserColumnDrag(.year, delta: -40)
+        setWindowWidth(900)
+        probeReport(playlist.columnReportLine("window-900"))
+        setWindowWidth(500)
+        probeReport(playlist.columnReportLine("window-500"))
+        let hidden = SettingsStore.shared.value.hiddenColumns
+        SettingsStore.shared.update { $0.hiddenColumns = hidden.union(["title", "artist"]) }
+        window.contentView?.layoutSubtreeIfNeeded()
+        probeReport(playlist.columnReportLine("no-elastic-visible"))
+        SettingsStore.shared.update { $0.hiddenColumns = hidden }
+        window.contentView?.layoutSubtreeIfNeeded()
+        probeReport(playlist.columnReportLine("restored"))
+    }
+
+    /// Протяжка слайдера высоты волны: каждый тик - полный круг «настройка → подписчики →
+    /// раскладка → слои». Меряем этот круг, а не отдельную функцию.
+    private func probeWaveHeightTicks() {
+        let start = SettingsStore.shared.value.waveHeightPercent
+        var samples: [Double] = []
+        for percent in WaveHeight.range {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            SettingsStore.shared.update { $0.waveHeightPercent = percent }
+            window.contentView?.layoutSubtreeIfNeeded()
+            CATransaction.flush()
+            samples.append((CFAbsoluteTimeGetCurrent() - t0) * 1000)
+        }
+        SettingsStore.shared.update { $0.waveHeightPercent = start }
+        let sorted = samples.sorted()
+        let median = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+        let over16 = samples.filter { $0 > 16 }.count
+        probeReport(String(
+            format: "PROBE waveheight ticks=%d median=%.2fms max=%.2fms over16ms=%d total=%.1fms",
+            samples.count, median, sorted.last ?? 0, over16, samples.reduce(0, +)))
+        probeReport("PROBE waveheight samples " + samples.map { String(format: "%.1f", $0) }.joined(separator: ","))
+    }
+
+    /// Остальные протяжки владельца: разделитель колонок, ширина окна, прокрутка плейлиста.
+    /// Меряется то же, что и у слайдера высоты: круг «действие → раскладка → слои».
+    private func probeInteractionTicks() {
+        measureTicks(name: "column-drag", count: 40) { [weak self] step in
+            self?.playlist.simulateUserColumnDrag(.year, delta: step.isMultiple(of: 2) ? 4 : -4)
+        }
+        let startWidth = window.frame.width
+        measureTicks(name: "window-resize", count: 40) { [weak self] step in
+            self?.setWindowWidth(500 + CGFloat(step) * 10)
+        }
+        setWindowWidth(startWidth)
+        let rows = playlist.model.displayed.count
+        measureTicks(name: "scroll", count: 40) { [weak self] step in
+            guard let self, rows > 0 else { return }
+            playlist.tableView.scrollRowToVisible(min(rows - 1, step * 3))
+        }
+    }
+
+    /// Один замер: действие плюс принудительная раскладка и отправка слоёв, как на живом кадре.
+    private func measureTicks(name: String, count: Int, step: @escaping (Int) -> Void) {
+        var samples: [Double] = []
+        for index in 0..<count {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            step(index)
+            window.contentView?.layoutSubtreeIfNeeded()
+            CATransaction.flush()
+            samples.append((CFAbsoluteTimeGetCurrent() - t0) * 1000)
+        }
+        let sorted = samples.sorted()
+        probeReport(String(
+            format: "PROBE %@ ticks=%d median=%.2fms max=%.2fms over16ms=%d",
+            name, samples.count, sorted[sorted.count / 2], sorted.last ?? 0,
+            samples.filter { $0 > 16 }.count))
+    }
+
+    /// Покой: сколько памяти держит процесс и тикают ли таймеры без воспроизведения.
+    private func probeIdle() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            probeReport(String(format: "PROBE idle rssMB=%.1f pid=%d", Self.residentMegabytes(), getpid()))
+        }
+    }
+
+    private static func residentMegabytes() -> Double {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return -1 }
+        return Double(info.resident_size) / 1_048_576
     }
 
     // MARK: - Магазин лампочек
@@ -394,9 +521,15 @@ final class MainWindowController {
     /// яркость волны, диапазон и порог анализа.
     private func applySettings() {
         let settings = SettingsStore.shared.value
+        let previous = appliedSettings
+        appliedSettings = settings
+        // Каждый потребитель берёт только свою настройку и только когда она изменилась:
+        // таблица - в `playlist.applySettings`, стиль волны - в `didSet` у `WaveformView`.
         playlist.applySettings()
         transport.isShuffling = settings.shuffle
-        waveHeightConstraint?.constant = WaveformView.blockHeight(percent: settings.waveHeightPercent)
+        if previous?.waveHeightPercent != settings.waveHeightPercent {
+            waveHeightConstraint?.constant = WaveformView.blockHeight(percent: settings.waveHeightPercent)
+        }
         wave.style = Self.waveStyle(for: settings)
         analysisRunner.apply(settings: settings)
     }
@@ -718,3 +851,7 @@ final class MainWindowController {
     }
 }
 
+/// Строка замера отладочного прогона: stderr, чтобы её ловил запуск из скрипта.
+func probeReport(_ line: String) {
+    FileHandle.standardError.write(Data((line + "\n").utf8))
+}

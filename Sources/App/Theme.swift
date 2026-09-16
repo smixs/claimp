@@ -154,10 +154,10 @@ enum Theme {
         }
 
         /// Поля текста в ячейке и в заголовке: у плотной строки отступы меньше общих spacing.
-        /// Справа больше, чем слева: столбик цифр не должен упираться в соседнюю колонку
-        /// (Aural держит те же 8 pt, отчёт research/07 §5).
+        /// Симметричные 4/4, как у Bòcan (`TrackTableCoordinator.swift:115-120`): лишние 8 pt
+        /// справа были нужны прежнему правому выравниванию цифр, теперь всё влево.
         static let cellInsetLeading: CGFloat = 4
-        static let cellInsetTrailing: CGFloat = 8
+        static let cellInsetTrailing: CGFloat = 4
         /// Воздух между колонками: при нуле цифра прилипала к соседке (жалоба владельца 16.09).
         static let intercellWidth: CGFloat = 2
         /// Риска между заголовками: отступ сверху и снизу, чтобы линия читалась как риска,
@@ -173,9 +173,12 @@ enum Theme {
         static let playedMax: CGFloat = 24
         static let numberMin: CGFloat = 28
         static let numberMax: CGFloat = 44
-        static let titleMin: CGFloat = 120
+        /// Минимумы текстовых колонок держат сумму минимумов ниже минимальной ширины окна:
+        /// при 120/90 сумма девяти минимумов 484 pt была больше `windowMinWidth` 420, таблица
+        /// не могла сжаться и крайняя колонка уезжала за край (замер research/08 §5.4).
+        static let titleMin: CGFloat = 80
         static let titleMax: CGFloat = 800
-        static let artistMin: CGFloat = 90
+        static let artistMin: CGFloat = 60
         static let artistMax: CGFloat = 800
         static let yearMin: CGFloat = 40
         static let yearMax: CGFloat = 56
