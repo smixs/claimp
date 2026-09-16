@@ -114,53 +114,7 @@ survey of the components the player is assembled from, `AGENTS.md` is the engine
 runbook (test-first, per-task worktrees, gate checks). These documents are written in
 Russian; the code and this README are in English.
 
-## Third-party code and licenses
-
-Claimp is assembled from open-source components. Full attribution, per-component
-usage notes and license texts (where required) are in **[NOTICE](NOTICE)**:
-
-| Component | Used for | License |
-|---|---|---|
-| [Aural Player](https://github.com/kartik-venugopal/aural-player) | waveform module, folder drop | MIT |
-| [Bòcan](https://github.com/bocan/bocan-music) | playlist table, file drag-out, media keys | Apache-2.0 |
-| [SFBAudioEngine](https://github.com/sbooth/SFBAudioEngine) | playback and metadata | MIT |
-| [Sparkle](https://github.com/sparkle-project/Sparkle) | auto-update | MIT |
-| TagLib (inside SFBAudioEngine) | tag reading | LGPL 2.1 / MPL 1.1 |
-| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite storage | MIT |
-| [swift-property-based](https://github.com/x-sheep/swift-property-based) | tests only | MIT |
-| [WaveformKit](https://github.com/GRimAce11/WaveformKit) | cache key scheme only, no code copied | MIT |
-| [Mixxx](https://github.com/mixxxdj/mixxx) | spectral waveform algorithm only, no code copied | GPL-2.0 |
-
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Sergey Shima.
-
----
-
-## По-русски
-
-**Claimp** — нативный macOS-плеер для подготовки DJ-микса. Сайт: [claimp.app](https://claimp.app).
-Открываешь папку с треками, видишь спектральную волну всего трека, слушаешь, отмечаешь
-лампочкой нужное и перетаскиваешь настоящий файл прямо в DAW.
-
-- Волна всего трека: высота столбика — громкость, цвет — спектр от красных басов к
-  фиолетовым верхам. Клик по волне — перемотка, высота волны — ползунок в настройках.
-- Drag-out файла из строки плейлиста и с обложки: принимают Ableton Live, Bitwig, Finder
-  и всё, что умеет drop файлов.
-- BPM и тональность: выделил треки, правый клик, «Analyze tracks» — считает встроенный в
-  macOS 27 MusicUnderstanding, результат пишется в теги файла. Тональность в Camelot (8A),
-  нота по наведению. Автоанализ всех новых треков — переключатель в настройках.
-- Плейлист для отбора: год, длительность, kbps, BPM, Key; сортировка кликом, перестановка
-  и ширина колонок мышью, поиск, лампочка «сыграно», режим Random, играющий трек подсвечен.
-  Папку можно бросить на окно или на иконку в Dock.
-- Обновляется сам: проверяет новую версию при запуске и ставит её на место (Sparkle).
-
-**Требования:** macOS 27+. Сборка: Swift 6.4 с SDK macOS 27 из Command Line Tools
-(`make build` / `make test` выставляют `DEVELOPER_DIR` сами).
-
-**Установка:** скачать DMG с [claimp.app](https://claimp.app/download) или со
-[страницы релизов](https://github.com/smixs/claimp/releases), перетащить Claimp в Applications.
-Подписано Developer ID и нотаризовано Apple.
-
-**Лицензия:** Apache License 2.0 (`LICENSE`), Copyright 2026 Sergey Shima. Сторонний
-код и его лицензии — в `NOTICE`.
+Third-party components and their licenses are listed in [NOTICE](NOTICE).
