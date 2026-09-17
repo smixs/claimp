@@ -129,9 +129,10 @@ final class VolumeControl: NSView {
     /// только ручка: событие приходит в эту вьюху, слайдер его не перехватывает.
     /// Шаг и цена точной дельты - токены Theme, кривая та же, что у перетаскивания ручки.
     override func scrollWheel(with event: NSEvent) {
-        let ticks = event.hasPreciseScrollingDeltas
+        // Знак инвертирован по слову владельца 17.09.2026: прокрутка «вниз» = громче.
+        let ticks = -(event.hasPreciseScrollingDeltas
             ? Double(event.scrollingDeltaY) / Theme.size.volumeWheelPoints
-            : Double(event.scrollingDeltaY)
+            : Double(event.scrollingDeltaY))
         guard ticks != 0 else { return }
         slider.doubleValue = VolumeCurve.position(
             from: slider.doubleValue, ticks: ticks, step: Theme.size.volumeWheelStep)
