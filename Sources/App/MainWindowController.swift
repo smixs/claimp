@@ -65,6 +65,9 @@ final class MainWindowController {
 
     private var positionsTask: Task<Void, Never>?
     private var waveTask: Task<Void, Never>?
+    /// Подъём прошлого плейлиста при запуске. Открытое извне (двойной клик по файлу при
+    /// холодном старте) приходит, пока он ещё сканирует, и главнее: подъём отменяется.
+    private var restoreTask: Task<Void, Never>?
     /// Трек, чьи данные сейчас на волне: повторный выбор той же строки анализ не перезапускает.
     private var waveURL: URL?
     private var lastElapsed: TimeInterval = 0
@@ -390,11 +393,13 @@ final class MainWindowController {
 
     // MARK: - Загрузка извне (дроп, Dock, ⌘O)
 
-    /// Дроп заменяет плейлист целиком. Без аудио - плейлист прежний, без падений.
+    /// Дроп заменяет плейлист целиком и сразу играет первый трек нового списка.
+    /// Без аудио - плейлист прежний, без падений.
     /// Файл плейлиста развиливается до сканера: `.m3u`/`.m3u8` - не аудио, сканер вернул бы
     /// по нему nil и промолчал (дыра из research/09 §3). Импорт заменяет плейлист целиком,
     /// поэтому из смешанного дропа берётся первый плейлист, остальное не сканируется.
     func loadURLs(_ urls: [URL]) {
+        restoreTask?.cancel()
         if let playlist = urls.first(where: M3UPlaylist.isPlaylist) {
             importPlaylist(at: playlist)
             return
@@ -403,7 +408,7 @@ final class MainWindowController {
             guard let self else { return }
             let tracks = await self.scan(urls)
             guard !tracks.isEmpty else { return }
-            self.applyScanned(tracks)
+            self.applyScanned(tracks, autoplay: true)
         }
     }
 
@@ -486,7 +491,7 @@ final class MainWindowController {
                     missing: result.missing.count, unreadable: result.urls.count))
                 return
             }
-            self.applyScanned(tracks)
+            self.applyScanned(tracks, autoplay: true)
             // Пропущенное - после укладки: applyScanned и play гасят прежнюю ошибку.
             let unreadable = result.urls.count - tracks.count
             if result.missing.count > 0 || unreadable > 0 {
@@ -538,7 +543,9 @@ final class MainWindowController {
     }
 
     /// Свежие треки в таблицу: лампочки из базы поверх, порядок и текущий - в базу.
-    private func applyScanned(_ tracks: [Track]) {
+    /// `autoplay` - открытое пользователем (файл, папка, плейлист) играет сразу с первого
+    /// трека, прежний трек сменяется; подъём прошлого плейлиста при запуске только показывает.
+    private func applyScanned(_ tracks: [Track], autoplay: Bool) {
         var flagged = tracks
         if let store {
             do {
@@ -553,19 +560,14 @@ final class MainWindowController {
         playlist.replaceAll(flagged)
         persist()
         analysisRunner.start(tracks: flagged)
-        if Self.shouldPlayFirstTrack() { playSelectedOrFirst() }
-    }
-
-    /// Отладочный ключ, как `--open-settings`: сразу после загрузки папки играет первый трек
-    /// (`CLAIMP_PLAY_FIRST=1`). Нужен для снимков подсветки играющей строки без клавиатуры и мыши.
-    private static func shouldPlayFirstTrack() -> Bool {
-        ProcessInfo.processInfo.environment["CLAIMP_PLAY_FIRST"] == "1"
+        // Первый в новом списке, не прежнее выделение: replaceAll сбросил сортировку и поиск.
+        if autoplay, let first = playlist.model.displayed.first { play(track: first) }
     }
 
     // MARK: - Восстановление при запуске
 
     private func restore() {
-        Task { [weak self] in
+        restoreTask = Task { [weak self] in
             guard let self else { return }
             guard let store = self.store else { return }
             let saved: PlaylistState
@@ -584,8 +586,8 @@ final class MainWindowController {
             for url in restored.urls {
                 if let track = await self.scanner.track(at: url) { tracks.append(track) }
             }
-            guard !tracks.isEmpty else { return }
-            self.applyScanned(tracks)
+            guard !tracks.isEmpty, !Task.isCancelled else { return }
+            self.applyScanned(tracks, autoplay: false)
             self.playlist.select(url: restored.current ?? tracks.first?.url)
             // Восстановленный текущий трек: шапка и волна сразу, без нажатия play.
             self.showCurrentTrack()
