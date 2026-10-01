@@ -742,6 +742,7 @@ final class MainWindowController {
         nowPlaying.onToggle = { [weak self] in self?.togglePlay() }
         nowPlaying.onNext = { [weak self] in self?.step(by: 1) }
         nowPlaying.onPrevious = { [weak self] in self?.step(by: -1) }
+        nowPlaying.onSeek = { [weak self] time in self?.seek(to: time) }
     }
 
     /// Логотип ровно на оси светофоров (правка владельца 15.09): высоту титлбара и
@@ -811,7 +812,22 @@ final class MainWindowController {
 
     private func seek(fraction: Double) {
         engine.seek(fraction: fraction)
+        // Позиция из потока движка придёт позже: без этого система получила бы старое время,
+        // и ползунок в «Пункте управления» и Alcove отскочил бы назад.
+        if let track = playingTrack { lastElapsed = fraction * track.duration }
         refreshNowPlaying()
+    }
+
+    /// Перемотка из системы приходит временем, а движок перематывает долей трека.
+    private func seek(to time: TimeInterval) {
+        guard let track = playingTrack, track.duration > 0 else { return }
+        seek(fraction: min(max(time / track.duration, 0), 1))
+    }
+
+    /// Трек, который держит движок (играет или на паузе).
+    private var playingTrack: Track? {
+        guard let url = engine.currentURL else { return nil }
+        return playlist.model.allTracks.first(where: { $0.url == url })
     }
 
     /// Конец трека: следующий по текущему порядку строк.
@@ -961,9 +977,7 @@ final class MainWindowController {
     // MARK: - Now Playing
 
     private func refreshNowPlaying() {
-        let url = engine.currentURL
-        let track = playlist.model.allTracks.first(where: { $0.url == url })
-        guard let track else {
+        guard let track = playingTrack else {
             if engine.state == .idle { nowPlaying.clear() }
             return
         }

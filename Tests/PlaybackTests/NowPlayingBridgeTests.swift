@@ -14,15 +14,16 @@ struct NowPlayingBridgeTests {
 
         bridge.register()
         #expect(bridge.isRegistered)
-        #expect(bridge.commandTargets.count == 5)
+        #expect(bridge.commandTargets.count == 6)
         #expect(MPRemoteCommandCenter.shared().playCommand.isEnabled)
         #expect(MPRemoteCommandCenter.shared().pauseCommand.isEnabled)
         #expect(MPRemoteCommandCenter.shared().togglePlayPauseCommand.isEnabled)
         #expect(MPRemoteCommandCenter.shared().nextTrackCommand.isEnabled)
         #expect(MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled)
+        #expect(MPRemoteCommandCenter.shared().changePlaybackPositionCommand.isEnabled)
 
         bridge.register()
-        #expect(bridge.commandTargets.count == 5)
+        #expect(bridge.commandTargets.count == 6)
 
         bridge.update(title: "Track", artist: "Artist", album: "Album",
                       duration: 120, elapsed: 12, rate: 1, artwork: nil)

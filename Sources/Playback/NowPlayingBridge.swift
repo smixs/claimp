@@ -32,6 +32,9 @@ public final class NowPlayingBridge {
     public var onNext: (@MainActor () -> Void)?
     /// Предыдущий трек (F7).
     public var onPrevious: (@MainActor () -> Void)?
+    /// Перемотка из системы: ползунок «Пункта управления», Alcove и другие панели «Сейчас
+    /// играет». Время от начала трека, в секундах.
+    public var onSeek: (@MainActor (TimeInterval) -> Void)?
 
     /// Идемпотентность `register()`: второй вызов ничего не регистрирует.
     private(set) var isRegistered = false
@@ -42,7 +45,7 @@ public final class NowPlayingBridge {
 
     // MARK: - Регистрация команд
 
-    /// Пять команд медиаклавиш. Идемпотентно: повторный вызов - no-op.
+    /// Пять команд медиаклавиш и перемотка. Идемпотентно: повторный вызов - no-op.
     public func register() {
         guard !isRegistered else { return }
         isRegistered = true
@@ -56,6 +59,18 @@ public final class NowPlayingBridge {
                 return .success
             })
         }
+        // Перемотка несёт время в событии, поэтому живёт отдельно от пяти команд без аргументов.
+        // Без неё система считает трек неперематываемым и ползунок панелей не двигается.
+        let seek = center.changePlaybackPositionCommand
+        seek.isEnabled = true
+        commandTargets.append(seek.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            let time = event.positionTime
+            Task { @MainActor in self.onSeek?(time) }
+            return .success
+        })
     }
 
     /// Пять команд медиаклавиш. Не `private`: тесты проверяют их привязку к системным командам.
