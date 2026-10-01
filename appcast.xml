@@ -9,7 +9,7 @@
             <sparkle:version>13</sparkle:version>
             <sparkle:shortVersionString>0.4.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/smixs/claimp/releases/download/v0.4.2/Claimp-0.4.2.zip" length="7242618" type="application/octet-stream" sparkle:edSignature="m0PFZU4oL+iRFKtDkkZtQXyQCOX/cIdBKPNLIbT1HfZ+eD0h2r41bE3X3Yv4Ryx2m4PTlqFgZ9bVLDvM6IOHAQ=="/>
+            <enclosure url="https://github.com/smixs/claimp/releases/download/v0.4.2/Claimp-0.4.2.zip" length="7242618" type="application/octet-stream" sparkle:edSignature="Gcf1yXjfLIRx5P9iAUvUhBErbbz4ng/ojTOgV67ri2DMjJgFkN0zDWFccYfOBuJ41j0k65GZhFl4owcZrW7hBA=="/>
         </item>
     </channel>
 </rss>
